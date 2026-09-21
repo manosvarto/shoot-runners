@@ -686,6 +686,15 @@ const LOCK_SLOW  = 0.26;   // how sluggish the Grinder makes you while attached
 // lane choice — the one real decision — into reflex. Firepower from those
 // same gates is uncapped; only the speed half stops climbing.
 const SPD_MAX    = 1.3;
+// Every arrow carries an identity, and every target remembers the last arrow
+// that hit it. A collision window has to be a little wider than one frame's
+// travel or a fast arrow tunnels straight through a body between two frames --
+// but consecutive frames then OVERLAP, and the same arrow scores twice in the
+// overlap. At 82 units/sec and 60fps an arrow moves 1.37 units a frame against
+// a 1.0-unit overlap on a body and a 4.4-unit one on the boss, so a body was
+// usually hit twice and the boss three or four times. Keeping the window wide
+// and refusing a repeat fixes it without reintroducing tunnelling.
+let BULLET_ID = 0;
 const BULLET_V   = 82;     // units/sec — fast enough to feel loosed, not lobbed
 // How far from the centre a body may stand. A sprite is about a unit wide,
 // so clamping to the track edge itself puts half of it on the grass — which
@@ -1802,7 +1811,7 @@ function fireCannons(){
     const off = k === 1 ? 0 : ((i/(k-1))-0.5)*1.9;
     const sx = clamp(mx + off, -TRACK_HALF+0.12, TRACK_HALF-0.12);
     const sz = G.dist + 0.8;
-    G.bullets.push({ x:sx, z:sz, z0:sz, vx:0, tx:sx,
+    G.bullets.push({ id:++BULLET_ID, x:sx, z:sz, z0:sz, vx:0, tx:sx,
                      dmg: base*CANNON_HIT, wdmg: base*CANNON_WALL,
                      pierce: G.st.pierce + 1, cannon:true });
     spark(sx, sz, 3, "#FFC46A", 2.6, 0.8, "fxSpark");
@@ -1912,7 +1921,7 @@ function fireVolley(){
       sx = clamp(mx + sl.x, -TRACK_HALF+0.12, TRACK_HALF-0.12);
       sz = G.dist + sl.z;
     }
-    G.bullets.push({ x:sx, z:sz, z0:sz, vx:0, tx:sx, dmg, pierce });
+    G.bullets.push({ id:++BULLET_ID, x:sx, z:sz, z0:sz, vx:0, tx:sx, dmg, pierce });
     if(i < 6) spark(sx, sz, 1, "#CFF1FF", 1.6, 0.62, "fxSpark");   // muzzle flash
   }
   volleySfx(crew);
@@ -2062,7 +2071,9 @@ function updateBullets(dt){
     if(consumed) continue;
 
     const B = G.boss;
-    if(B && B.hp > 0 && B.z > z0 - 2.2 && B.z <= b.z + 2.2 && Math.abs(b.x - B.x) < 1.9){
+    if(B && B.hp > 0 && B.z > z0 - 2.2 && B.z <= b.z + 2.2 && Math.abs(b.x - B.x) < 1.9
+       && !(b.id && B.lastHit === b.id)){
+      B.lastHit = b.id;
       B.hp -= b.dmg;
       if(--b.pierce <= 0) continue;
     }
@@ -2071,6 +2082,8 @@ function updateBullets(dt){
       if(e.dead) continue;
       if(e.z <= z0 - 0.5 || e.z > b.z + 0.5) continue;
       if(Math.abs(b.x - e.x) > e.r + 0.22) continue;
+      if(b.id && e.lastHit === b.id) continue;   // never silently zero
+      e.lastHit = b.id;
       e.hp -= b.dmg;
       // Feedback for a shot that hurt but did not kill. Without it a body
       // absorbing four arrows looked identical to one the arrows missed.
