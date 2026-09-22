@@ -1,22 +1,30 @@
 # Cloudflare Workers Builds reads this when it runs `npx wrangler deploy`.
-# Without it the build has nothing to deploy and no idea what to bind.
 
-name = "shoot-runners"          # the Worker's name, and its address:
-                                # https://shoot-runners.<your-subdomain>.workers.dev
-                                # If you already made a Worker under another
-                                # name, put THAT name here — otherwise this
-                                # deploy creates a second one beside it.
+name = "shoot-runners"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
-# Where the scores live.
+# The game itself, served as static files straight from this repo. A request
+# for a file that exists is answered from here and never reaches the code
+# below; anything under /api/ has no matching file, so it falls through to
+# worker.js. One Worker, one address: the game and the leaderboard are the
+# same origin, which also means the board needs no cross-origin permission.
+[assets]
+directory = "."
+binding = "ASSETS"
+
+# ── The scores store ──────────────────────────────────────────────────────
+# Commented out on purpose. `wrangler deploy` refuses to run with a namespace
+# ID it cannot resolve, so leaving a placeholder here means nothing deploys at
+# all. With this block absent the build succeeds, the API goes live, and the
+# store can be attached from the dashboard — Settings → Bindings → Add → KV
+# namespace, variable name SCORES — which is a dropdown and needs no ID.
 #
-# This has to be here rather than only in the dashboard: `wrangler deploy`
-# replaces a Worker's bindings with whatever this file says, so a binding
-# added by hand in the UI is wiped by the next build.
+# That binding survives until the next `wrangler deploy`, which replaces a
+# Worker's bindings with whatever this file says. So once it is working,
+# uncomment this and fill in the real ID (the dashboard shows it in the
+# "Update your Wrangler configuration" box once a binding exists):
 #
-# Make it under Storage & Databases → KV → Create a namespace (call it
-# SCORES), then paste its Namespace ID below — the long hex string.
-[[kv_namespaces]]
-binding = "SCORES"
-id = "PASTE_YOUR_KV_NAMESPACE_ID_HERE"
+# [[kv_namespaces]]
+# binding = "SCORES"
+# id = "your-kv-namespace-id"

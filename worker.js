@@ -51,6 +51,14 @@ export default {
         headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
 
+    // The game is served from this same Worker as static files, so only the
+    // API path belongs to this code. Anything else is a page request and is
+    // handed back to the asset server.
+    const path = new URL(request.url).pathname;
+    if (!path.startsWith("/api/")) return env.ASSETS
+      ? env.ASSETS.fetch(request)
+      : new Response("Not found", { status: 404, headers: CORS });
+
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
     if (!env.SCORES) return reply({ error: "No KV binding named SCORES" }, 500);
 
