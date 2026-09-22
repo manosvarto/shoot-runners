@@ -89,30 +89,59 @@ body{
 }
 .saverow{display:flex; align-items:center; gap:9px; margin:2px 0 10px}
 .savenote{font-size:11px; color:var(--dim); line-height:1.3}
+/* The board and the name prompt are the menu card, not the dev room: bone,
+   four-pixel ink, a hard offset shadow and Bungee on the headings. */
 #namePanel, #lbPanel{
-  position:fixed; inset:auto 8px calc(8px + env(safe-area-inset-bottom,0px)) 8px;
-  max-height:80vh; overflow:auto; z-index:63; background:#241C2E; color:var(--bone);
-  border:3px solid var(--ink); border-radius:12px; padding:10px 12px 12px;
-  box-shadow:5px 5px 0 var(--ink); font-size:12px;
+  position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:min(392px, calc(100vw - 26px)); max-height:min(82vh, 700px); overflow:auto;
+  z-index:63; background:var(--bone); color:var(--ink);
+  border:4px solid var(--ink); border-radius:12px; box-shadow:9px 9px 0 var(--ink);
+  padding:18px 18px 20px;
 }
+#namePanel h2, #lbPanel h2{
+  font-family:"Bungee",system-ui,sans-serif; font-size:19px; letter-spacing:.06em;
+  margin:0; color:var(--ink);
+}
+.pnHead{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px}
+#namePanel p, #lbPanel p{font-size:12px; line-height:1.55; color:var(--dim); margin:11px 0 7px}
 #namePanel input, #lbPanel textarea{
-  width:100%; box-sizing:border-box; background:#160F1E; color:var(--bone);
-  border:2px solid var(--ink); border-radius:6px; padding:7px 8px;
-  font:13px/1.35 ui-monospace,"SFMono-Regular",Menlo,monospace; resize:vertical;
+  width:100%; box-sizing:border-box; background:var(--track); color:var(--ink);
+  border:3px solid var(--ink); border-radius:8px; padding:9px 10px;
+  font:13px/1.4 ui-monospace,"SFMono-Regular",Menlo,monospace; resize:vertical;
   word-break:break-all;
 }
-#namePanel .devBtns, #lbPanel .devBtns{display:flex; gap:7px; margin:7px 0 2px}
+#namePanel input{font-family:"Bungee",system-ui,sans-serif; font-size:17px; letter-spacing:.04em}
+#namePanel input::placeholder, #lbPanel textarea::placeholder{color:var(--empty); font-family:inherit}
+.pnRow{display:flex; gap:9px; margin:9px 0 2px}
+.pnRow>*{flex:1}
+
 .lbhead, .lbrow{
-  display:grid; grid-template-columns:26px 1fr 62px 46px; gap:6px;
-  align-items:center; padding:4px 5px; border-radius:5px;
+  display:grid; grid-template-columns:30px 1fr 68px 48px; gap:7px; align-items:center;
 }
-.lbhead{font-size:10px; letter-spacing:.06em; color:#9C8FB0; text-transform:uppercase}
-.lbrow{background:#1C1526; margin-bottom:3px}
-.lbrow.me{background:#3A2350; outline:2px solid #C9A0FF}
-.lbrow .nm{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.lbrow .rk{font-family:"Bungee",system-ui,sans-serif; color:#C9A0FF}
-.lbrow .v{text-align:right; font:12px/1 ui-monospace,Menlo,monospace}
-.lbempty{color:#9C8FB0; padding:8px 4px}
+.lbhead{
+  font-size:9px; font-weight:800; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--dim); padding:0 9px 5px;
+}
+.lbhead span:nth-child(n+3), .lbrow .v{text-align:right}
+.lbrow{
+  background:var(--track); border:3px solid var(--ink); border-radius:8px;
+  padding:7px 9px; margin-bottom:6px;
+}
+.lbrow.me{background:var(--gold); box-shadow:4px 4px 0 var(--ink)}
+.lbrow .rk{font-family:"Bungee",system-ui,sans-serif; font-size:15px; color:var(--dim)}
+.lbrow.me .rk{color:var(--ink)}
+.lbrow .nm{font-weight:800; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.lbrow .v{
+  font-family:"Bungee",system-ui,sans-serif; font-size:14px; line-height:1.15;
+  font-variant-numeric:tabular-nums;
+}
+.lbrow .v.dist{color:var(--chip); -webkit-text-stroke:.7px var(--ink)}
+.lbrow.me .v.dist{color:var(--ink); -webkit-text-stroke:0}
+.lbempty{color:var(--dim); padding:14px 4px; text-align:center}
+.lbfrom{
+  font-size:9px; font-weight:800; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--dim); margin:2px 0 8px; padding:0 9px;
+}
 #savePanel{
   position:fixed; inset:auto 8px calc(8px + env(safe-area-inset-bottom,0px)) 8px;
   max-height:80vh; overflow:auto; z-index:62; background:#241C2E; color:var(--bone);
@@ -588,27 +617,29 @@ h2.hd.bad{color:var(--foe)}
 </div>
 
 <div id="namePanel" hidden>
-  <div class="devHead"><b>WHO ARE YOU?</b></div>
-  <p class="savep">Your name goes on the leaderboard. You can change it later.</p>
+  <div class="pnHead"><h2>Who are you?</h2></div>
+  <p>Your name goes on the leaderboard. You can change it later.</p>
   <input id="nameIn" maxlength="14" autocomplete="off" spellcheck="false"
          placeholder="your name">
-  <div class="devBtns"><button id="nameOk">START</button></div>
-  <p class="savep" id="nameMsg"></p>
+  <div class="pnRow"><button class="btn small" id="nameOk">Start</button></div>
+  <p id="nameMsg"></p>
 </div>
 
 <div id="lbPanel" hidden>
-  <div class="devHead"><b>LEADERBOARD</b><button id="lbClose">CLOSE</button></div>
+  <div class="pnHead"><h2>Leaderboard</h2>
+    <button class="btn small ghost" id="lbClose">Close</button></div>
+  <p class="lbfrom" id="lbFrom"></p>
   <div class="lbhead"><span>#</span><span>Name</span><span>Best</span><span>Kills</span></div>
   <div id="lbRows"></div>
-  <p class="savep">Send your score to the group and paste theirs back in — the
-     board is built from the codes you have.</p>
+  <p>Send your score to the group and paste theirs back in.</p>
   <textarea id="lbOut" readonly rows="2" spellcheck="false"></textarea>
-  <div class="devBtns">
-    <button id="lbCopy">COPY MINE</button><button id="lbRename">RENAME</button>
+  <div class="pnRow">
+    <button class="btn small" id="lbCopy">Copy mine</button>
+    <button class="btn small ghost" id="lbRename">Rename</button>
   </div>
   <textarea id="lbIn" rows="2" spellcheck="false" placeholder="paste a friend’s score code"></textarea>
-  <div class="devBtns"><button id="lbAdd">ADD</button></div>
-  <p class="savep" id="lbMsg"></p>
+  <div class="pnRow"><button class="btn small ghost" id="lbAdd">Add</button></div>
+  <p id="lbMsg"></p>
 </div>
 
 <div id="savePanel" hidden>
@@ -4039,6 +4070,7 @@ function endRun(why, won){
   bankProgress();
   G.bankedDone = true;
   save();
+  submitScore();     // no-op until there is somewhere to submit to
   $("overTitle").textContent = won ? "Inside the Keep" : record ? "New Best" : "Run Over";
   $("overTitle").className   = "hd" + (won || record ? "" : " bad");
   $("overNote").textContent  = why || "The crew ran dry.";
@@ -4529,6 +4561,46 @@ function applyCode(text){
 
 const SCORE_MAX = 60;
 
+/* A board everybody sees, without a server to keep it on.
+   `scores.json` sits beside the game on the same static host, so reading it
+   costs nothing and needs no key -- every phone that opens the game gets the
+   same table. Writing to it is the part a static host cannot do: a page
+   cannot push to GitHub without a token, and a token in a page anyone can
+   view source on is a token anyone can use to rewrite the repo. GitHub
+   revokes ones it finds leaked, so it would not even keep working. Posting a
+   score therefore goes through whatever POST_URL is set to, and until one
+   exists the codes below are how a score travels. */
+const SCORES_URL = "scores.json";
+const POST_URL   = "";              // set this and finishing a run submits
+let remoteRows = [], remoteAt = 0;
+
+function fetchScores(){
+  // Cache-busted, because a static host will happily serve yesterday's board.
+  return fetch(SCORES_URL + "?t=" + Date.now(), { cache: "no-store" })
+    .then(r => r.ok ? r.json() : null)
+    .then(j => {
+      const list = Array.isArray(j) ? j : (j && Array.isArray(j.scores) ? j.scores : null);
+      if(!list) return false;
+      remoteRows = list.map(e => ({
+        n: cleanName(e && e.n), b: Math.max(0, (e && e.b) | 0),
+        k: Math.max(0, (e && e.k) | 0), r: Math.max(0, (e && e.r) | 0),
+        t: (e && e.t) | 0, remote: 1,
+      })).filter(e => e.n).slice(0, 200);
+      remoteAt = Date.now();
+      return true;
+    })
+    .catch(() => false);
+}
+
+function submitScore(){
+  if(!POST_URL || !meta.name) return Promise.resolve(false);
+  return fetch(POST_URL, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ n: meta.name, b: meta.best | 0, k: meta.kills | 0,
+                           r: meta.runs | 0 }),
+  }).then(r => r.ok).catch(() => false);
+}
+
 function myRow(){
   return { n: meta.name || "You", b: meta.best | 0, k: meta.kills | 0,
            r: meta.runs | 0, t: Date.now(), me: 1 };
@@ -4566,7 +4638,17 @@ function addScoreCode(text){
 }
 
 function paintBoard(){
-  const rows = meta.board.concat([myRow()])
+  // Three sources, one row per name: the shared file, the codes this phone
+  // has been given, and you. Whoever holds the higher score for a name wins,
+  // so a friend's fresh code is not hidden by a stale line in the file.
+  const by = new Map();
+  const put = r => {
+    const k = r.n.toLowerCase();
+    const cur = by.get(k);
+    if(!cur || r.me || (!cur.me && r.b > cur.b)) by.set(k, r);
+  };
+  remoteRows.forEach(put); meta.board.forEach(put); put(myRow());
+  const rows = [...by.values()]
     .sort((a, b) => (b.b - a.b) || (b.k - a.k) || a.n.localeCompare(b.n));
   const host = $("lbRows");
   host.textContent = "";
@@ -4583,7 +4665,7 @@ function paintBoard(){
       sp.className = cls; sp.textContent = text; return sp;
     };
     div.append(mk("rk", i + 1), mk("nm", r.n),
-               mk("v", (r.b | 0) + "m"), mk("v", String(r.k | 0)));
+               mk("v dist", (r.b | 0) + "m"), mk("v", String(r.k | 0)));
     host.appendChild(div);
   });
 }
@@ -4611,10 +4693,19 @@ function askName(first){
 
 {
   const panel = $("lbPanel"), msg = $("lbMsg");
+  const from = $("lbFrom");
+  const sayFrom = () => {
+    // An empty shared file is not a shared board yet -- say so rather than
+    // announcing "Everyone · 0 players".
+    from.textContent = (remoteAt && remoteRows.length)
+      ? "Everyone · " + remoteRows.length + " player" + (remoteRows.length === 1 ? "" : "s")
+      : "This phone only";
+  };
   $("btnBoard").addEventListener("click", () => {
-    paintBoard(); $("lbOut").value = scoreCode();
+    paintBoard(); sayFrom(); $("lbOut").value = scoreCode();
     $("lbIn").value = ""; msg.textContent = "";
     panel.hidden = false;
+    fetchScores().then(ok => { if(ok){ paintBoard(); sayFrom(); } });
   });
   $("lbClose").addEventListener("click", () => { panel.hidden = true; });
   $("lbRename").addEventListener("click", () => askName(false));
@@ -4636,6 +4727,7 @@ restoreFromMirror();
 // First time in: ask who they are, so the board has something to call them.
 // Left until after the mirror read, or a restored save would be asked anyway.
 setTimeout(() => { if(!meta.name) askName(true); }, 240);
+fetchScores();
 
 {
   const panel = $("savePanel"), note = $("saveNote"), msg = $("saveMsg");
