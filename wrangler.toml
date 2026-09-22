@@ -4,27 +4,16 @@ name = "shoot-runners"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
-# The game itself, served as static files straight from this repo. A request
-# for a file that exists is answered from here and never reaches the code
-# below; anything under /api/ has no matching file, so it falls through to
-# worker.js. One Worker, one address: the game and the leaderboard are the
-# same origin, which also means the board needs no cross-origin permission.
-[assets]
-directory = "."
-binding = "ASSETS"
+# The scores. Declared here rather than attached in the dashboard, because
+# `wrangler deploy` replaces a Worker's bindings with whatever this file says
+# -- and because the dashboard refuses to attach anything to a Worker it
+# considers static-assets-only, which is the wall this kept hitting.
+[[kv_namespaces]]
+binding = "SCORES"
+id = "ca581da8cc934780bbf75e1a551df8f4"
 
-# ── The scores store ──────────────────────────────────────────────────────
-# Commented out on purpose. `wrangler deploy` refuses to run with a namespace
-# ID it cannot resolve, so leaving a placeholder here means nothing deploys at
-# all. With this block absent the build succeeds, the API goes live, and the
-# store can be attached from the dashboard — Settings → Bindings → Add → KV
-# namespace, variable name SCORES — which is a dropdown and needs no ID.
-#
-# That binding survives until the next `wrangler deploy`, which replaces a
-# Worker's bindings with whatever this file says. So once it is working,
-# uncomment this and fill in the real ID (the dashboard shows it in the
-# "Update your Wrangler configuration" box once a binding exists):
-#
-# [[kv_namespaces]]
-# binding = "SCORES"
-# id = "your-kv-namespace-id"
+# No [assets] block, deliberately. Serving the game from here as well turned
+# this into a Worker Cloudflare classified as static-assets-only, which cannot
+# hold a KV binding at all -- the dashboard says so in as many words. The game
+# is already served by GitHub Pages; this Worker does one job, the board, and
+# sends anyone who opens its address to the game.

@@ -54,10 +54,13 @@ export default {
     // The game is served from this same Worker as static files, so only the
     // API path belongs to this code. Anything else is a page request and is
     // handed back to the asset server.
+    // This Worker is the board and nothing else. Anyone who opens its address
+    // in a browser wanted the game, so send them there rather than showing
+    // them a 404 or a page of JSON.
     const path = new URL(request.url).pathname;
-    if (!path.startsWith("/api/")) return env.ASSETS
-      ? env.ASSETS.fetch(request)
-      : new Response("Not found", { status: 404, headers: CORS });
+    if (!path.startsWith("/api/")) {
+      return Response.redirect("https://manosvarto.github.io/shoot-runners/", 302);
+    }
 
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
     if (!env.SCORES) return reply({ error: "No KV binding named SCORES" }, 500);
