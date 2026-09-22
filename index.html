@@ -4070,7 +4070,7 @@ function endRun(why, won){
   bankProgress();
   G.bankedDone = true;
   save();
-  submitScore();     // no-op until there is somewhere to submit to
+  submitScore();     // no-op until BOARD_URL is set
   $("overTitle").textContent = won ? "Inside the Keep" : record ? "New Best" : "Run Over";
   $("overTitle").className   = "hd" + (won || record ? "" : " bad");
   $("overNote").textContent  = why || "The crew ran dry.";
@@ -4568,15 +4568,19 @@ const SCORE_MAX = 60;
    cannot push to GitHub without a token, and a token in a page anyone can
    view source on is a token anyone can use to rewrite the repo. GitHub
    revokes ones it finds leaked, so it would not even keep working. Posting a
-   score therefore goes through whatever POST_URL is set to, and until one
-   exists the codes below are how a score travels. */
+   score therefore goes through an endpoint of your own, set below -- and
+   until one exists, the codes further down are how a score travels. */
+// ONE LINE TO GO LIVE: paste the endpoint's address here and the board
+// becomes shared -- it is read from there when the panel opens and written
+// to when a run ends. Leave it empty and the game falls back to the static
+// scores.json beside it, which is readable but nobody can write to.
+const BOARD_URL  = "";
 const SCORES_URL = "scores.json";
-const POST_URL   = "";              // set this and finishing a run submits
 let remoteRows = [], remoteAt = 0;
 
 function fetchScores(){
   // Cache-busted, because a static host will happily serve yesterday's board.
-  return fetch(SCORES_URL + "?t=" + Date.now(), { cache: "no-store" })
+  return fetch((BOARD_URL || SCORES_URL) + "?t=" + Date.now(), { cache: "no-store" })
     .then(r => r.ok ? r.json() : null)
     .then(j => {
       const list = Array.isArray(j) ? j : (j && Array.isArray(j.scores) ? j.scores : null);
@@ -4593,8 +4597,8 @@ function fetchScores(){
 }
 
 function submitScore(){
-  if(!POST_URL || !meta.name) return Promise.resolve(false);
-  return fetch(POST_URL, {
+  if(!BOARD_URL || !meta.name) return Promise.resolve(false);
+  return fetch(BOARD_URL, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ n: meta.name, b: meta.best | 0, k: meta.kills | 0,
                            r: meta.runs | 0 }),
