@@ -1,0 +1,22 @@
+# Cloudflare Workers Builds reads this when it runs `npx wrangler deploy`.
+# Without it the build has nothing to deploy and no idea what to bind.
+
+name = "shoot-runners"          # the Worker's name, and its address:
+                                # https://shoot-runners.<your-subdomain>.workers.dev
+                                # If you already made a Worker under another
+                                # name, put THAT name here — otherwise this
+                                # deploy creates a second one beside it.
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Where the scores live.
+#
+# This has to be here rather than only in the dashboard: `wrangler deploy`
+# replaces a Worker's bindings with whatever this file says, so a binding
+# added by hand in the UI is wiped by the next build.
+#
+# Make it under Storage & Databases → KV → Create a namespace (call it
+# SCORES), then paste its Namespace ID below — the long hex string.
+[[kv_namespaces]]
+binding = "SCORES"
+id = "PASTE_YOUR_KV_NAMESPACE_ID_HERE"
