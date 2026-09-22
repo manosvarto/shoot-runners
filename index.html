@@ -4414,11 +4414,25 @@ cv.addEventListener("pointermove", e => {
 const dropDrag = () => { drag = null; if(G) G.moveX = 0; };
 cv.addEventListener("pointerup", dropDrag);
 cv.addEventListener("pointercancel", dropDrag);
+// A key pressed inside a text field is a letter in somebody's name, not a
+// steering input. This listener used to swallow a and d wherever the focus
+// was, so "Adam" typed into the name box arrived as "m" and "Dad" as nothing
+// at all, with no hint as to why. The arrows are the same story: in a field
+// they move the caret, on the dev room's sliders they move the slider.
+const typingInto = t => !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA"
+                                || t.isContentEditable);
 addEventListener("keydown", e => {
+  if(typingInto(e.target)) return;
   const k = e.key.length===1 ? e.key.toLowerCase() : e.key;
-  if(["ArrowLeft","ArrowRight","a","d"].includes(k)){ keys.add(k); e.preventDefault(); }
+  if(!["ArrowLeft","ArrowRight","a","d"].includes(k)) return;
+  keys.add(k);
+  // Swallowed only while they are actually steering. Off the track the arrows
+  // still have to scroll a menu card that is taller than the phone.
+  if(mode === "run") e.preventDefault();
 });
 addEventListener("keyup", e => {
+  // Released unconditionally: the worst a spurious delete can do is nothing,
+  // while a miss would leave the crew walking into the kerb.
   const k = e.key.length===1 ? e.key.toLowerCase() : e.key;
   keys.delete(k);
 });
