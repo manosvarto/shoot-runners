@@ -89,6 +89,30 @@ body{
 }
 .saverow{display:flex; align-items:center; gap:9px; margin:2px 0 10px}
 .savenote{font-size:11px; color:var(--dim); line-height:1.3}
+#namePanel, #lbPanel{
+  position:fixed; inset:auto 8px calc(8px + env(safe-area-inset-bottom,0px)) 8px;
+  max-height:80vh; overflow:auto; z-index:63; background:#241C2E; color:var(--bone);
+  border:3px solid var(--ink); border-radius:12px; padding:10px 12px 12px;
+  box-shadow:5px 5px 0 var(--ink); font-size:12px;
+}
+#namePanel input, #lbPanel textarea{
+  width:100%; box-sizing:border-box; background:#160F1E; color:var(--bone);
+  border:2px solid var(--ink); border-radius:6px; padding:7px 8px;
+  font:13px/1.35 ui-monospace,"SFMono-Regular",Menlo,monospace; resize:vertical;
+  word-break:break-all;
+}
+#namePanel .devBtns, #lbPanel .devBtns{display:flex; gap:7px; margin:7px 0 2px}
+.lbhead, .lbrow{
+  display:grid; grid-template-columns:26px 1fr 62px 46px; gap:6px;
+  align-items:center; padding:4px 5px; border-radius:5px;
+}
+.lbhead{font-size:10px; letter-spacing:.06em; color:#9C8FB0; text-transform:uppercase}
+.lbrow{background:#1C1526; margin-bottom:3px}
+.lbrow.me{background:#3A2350; outline:2px solid #C9A0FF}
+.lbrow .nm{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.lbrow .rk{font-family:"Bungee",system-ui,sans-serif; color:#C9A0FF}
+.lbrow .v{text-align:right; font:12px/1 ui-monospace,Menlo,monospace}
+.lbempty{color:#9C8FB0; padding:8px 4px}
 #savePanel{
   position:fixed; inset:auto 8px calc(8px + env(safe-area-inset-bottom,0px)) 8px;
   max-height:80vh; overflow:auto; z-index:62; background:#241C2E; color:var(--bone);
@@ -563,6 +587,30 @@ h2.hd.bad{color:var(--foe)}
   </button>
 </div>
 
+<div id="namePanel" hidden>
+  <div class="devHead"><b>WHO ARE YOU?</b></div>
+  <p class="savep">Your name goes on the leaderboard. You can change it later.</p>
+  <input id="nameIn" maxlength="14" autocomplete="off" spellcheck="false"
+         placeholder="your name">
+  <div class="devBtns"><button id="nameOk">START</button></div>
+  <p class="savep" id="nameMsg"></p>
+</div>
+
+<div id="lbPanel" hidden>
+  <div class="devHead"><b>LEADERBOARD</b><button id="lbClose">CLOSE</button></div>
+  <div class="lbhead"><span>#</span><span>Name</span><span>Best</span><span>Kills</span></div>
+  <div id="lbRows"></div>
+  <p class="savep">Send your score to the group and paste theirs back in — the
+     board is built from the codes you have.</p>
+  <textarea id="lbOut" readonly rows="2" spellcheck="false"></textarea>
+  <div class="devBtns">
+    <button id="lbCopy">COPY MINE</button><button id="lbRename">RENAME</button>
+  </div>
+  <textarea id="lbIn" rows="2" spellcheck="false" placeholder="paste a friend’s score code"></textarea>
+  <div class="devBtns"><button id="lbAdd">ADD</button></div>
+  <p class="savep" id="lbMsg"></p>
+</div>
+
 <div id="savePanel" hidden>
   <div class="devHead"><b>SAVE CODE</b><button id="saveClose">CLOSE</button></div>
   <p class="savep">Your progress lives on this phone. Keep a copy of this code
@@ -636,6 +684,7 @@ h2.hd.bad{color:var(--foe)}
       <div class="owned" id="ownedA"></div>
     </div>
     <div class="saverow">
+      <button class="btn small ghost" id="btnBoard">Leaderboard</button>
       <button class="btn small ghost" id="btnSave">Save code</button>
       <span class="savenote" id="saveNote"></span>
     </div>
@@ -1208,13 +1257,26 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const KEY = "shoutrunner.v5";
 const FRESH = () => ({
   chips:0, best:0, runs:0, kills:0, color:0, owned:[0], muted:false, hero:0,
+  name:"", board:[],
   up:{ power:0, rate:0, speed:0, shield:0, roster:0, magnet:0, buster:0, pierce:0, boom:0 }
 });
 function heal(raw){
   const m = Object.assign(FRESH(), raw);
   m.up = Object.assign(FRESH().up, m.up || {});
   if(!Array.isArray(m.owned) || !m.owned.length) m.owned = [0];
+  if(!Array.isArray(m.board)) m.board = [];
+  m.board = m.board.filter(e => e && typeof e.n === "string").slice(0, 60);
+  m.name = cleanName(m.name);
   return m;
+}
+
+// Names arrive from codes pasted out of a group chat, so they are trimmed to
+// something that fits a row and stripped of anything that is not printable.
+// They are only ever written to the page with textContent -- never as HTML.
+function cleanName(v){
+  return String(v == null ? "" : v)
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    .replace(/\s+/g, " ").trim().slice(0, 14);
 }
 function load(){
   try{
@@ -4451,9 +4513,129 @@ function applyCode(text){
   return null;
 }
 
+/* ── The leaderboard ────────────────────────────────────────────
+   A shared board wants a server to keep the scores on, and this game is a
+   single file on a static host -- there is nowhere to put them. So the board
+   is built the way a group of friends actually compares scores anyway: you
+   copy your line, paste it into the chat, and paste theirs back. Each phone
+   holds the board it has been told about, and your own row is always live
+   from your own save rather than stored, so it can never go stale.
+
+   A pasted code is somebody else's claim about their own score. It is
+   checksummed against corruption, not against lying -- anyone determined to
+   top a board they can edit by hand will manage it, and no client-side check
+   changes that. Names are written with textContent, never as HTML, because
+   they arrive from a chat window. */
+
+const SCORE_MAX = 60;
+
+function myRow(){
+  return { n: meta.name || "You", b: meta.best | 0, k: meta.kills | 0,
+           r: meta.runs | 0, t: Date.now(), me: 1 };
+}
+function scoreCode(){
+  const body = b64.enc({ n: meta.name || "You", b: meta.best | 0,
+                         k: meta.kills | 0, r: meta.runs | 0, t: Date.now() });
+  return "SRB1-" + sum4(body) + "-" + body;
+}
+function addScoreCode(text){
+  const t = (text || "").trim().replace(/\s+/g, "");
+  const m = /^SRB1-([a-z0-9]{4})-(.+)$/i.exec(t);
+  if(!m) return "That is not a score code.";
+  if(sum4(m[2]) !== m[1].toLowerCase()) return "That code is damaged — copy the whole thing.";
+  let e;
+  try{ e = b64.dec(m[2]); }catch{ return "That code could not be read."; }
+  const n = cleanName(e && e.n);
+  if(!n) return "That code has no name on it.";
+  if(n.toLowerCase() === (meta.name || "").toLowerCase())
+    return "That is your own code.";
+  const row = { n, b: Math.max(0, e.b | 0), k: Math.max(0, e.k | 0),
+                r: Math.max(0, e.r | 0), t: e.t | 0 };
+  // One row per person: a newer code from the same name replaces the old one
+  // rather than stacking up next to it.
+  const at = meta.board.findIndex(x => x.n.toLowerCase() === n.toLowerCase());
+  if(at >= 0){
+    if((meta.board[at].t | 0) > row.t) return "You already have a newer score for " + n + ".";
+    meta.board[at] = row;
+  }else{
+    meta.board.push(row);
+  }
+  meta.board = meta.board.slice(0, SCORE_MAX);
+  save();
+  return null;
+}
+
+function paintBoard(){
+  const rows = meta.board.concat([myRow()])
+    .sort((a, b) => (b.b - a.b) || (b.k - a.k) || a.n.localeCompare(b.n));
+  const host = $("lbRows");
+  host.textContent = "";
+  if(!rows.length){
+    const e = document.createElement("p");
+    e.className = "lbempty"; e.textContent = "No scores yet.";
+    host.appendChild(e); return;
+  }
+  rows.forEach((r, i) => {
+    const div = document.createElement("div");
+    div.className = "lbrow" + (r.me ? " me" : "");
+    const mk = (cls, text) => {
+      const sp = document.createElement("span");
+      sp.className = cls; sp.textContent = text; return sp;
+    };
+    div.append(mk("rk", i + 1), mk("nm", r.n),
+               mk("v", (r.b | 0) + "m"), mk("v", String(r.k | 0)));
+    host.appendChild(div);
+  });
+}
+
+function askName(first){
+  const panel = $("namePanel"), inp = $("nameIn"), msg = $("nameMsg");
+  msg.textContent = "";
+  inp.value = meta.name || "";
+  $("nameOk").textContent = first ? "START" : "SAVE";
+  panel.hidden = false;
+  setTimeout(() => { try{ inp.focus(); }catch{} }, 30);
+}
+
+{
+  const panel = $("namePanel"), inp = $("nameIn"), msg = $("nameMsg");
+  const commit = () => {
+    const n = cleanName(inp.value);
+    if(!n){ msg.textContent = "Put a name in first."; return; }
+    meta.name = n; save(); panel.hidden = true;
+    try{ paintBoard(); $("lbOut").value = scoreCode(); }catch{}
+  };
+  $("nameOk").addEventListener("click", commit);
+  inp.addEventListener("keydown", e => { if(e.key === "Enter") commit(); });
+}
+
+{
+  const panel = $("lbPanel"), msg = $("lbMsg");
+  $("btnBoard").addEventListener("click", () => {
+    paintBoard(); $("lbOut").value = scoreCode();
+    $("lbIn").value = ""; msg.textContent = "";
+    panel.hidden = false;
+  });
+  $("lbClose").addEventListener("click", () => { panel.hidden = true; });
+  $("lbRename").addEventListener("click", () => askName(false));
+  $("lbCopy").addEventListener("click", async () => {
+    try{ await navigator.clipboard.writeText($("lbOut").value); msg.textContent = "Copied — paste it to your friends."; }
+    catch{ $("lbOut").select(); msg.textContent = "Press and hold to copy."; }
+  });
+  $("lbAdd").addEventListener("click", () => {
+    const err = addScoreCode($("lbIn").value);
+    msg.textContent = err || "Added.";
+    if(!err){ $("lbIn").value = ""; paintBoard(); }
+  });
+}
+
 // Before anything writes: if localStorage was cleared but the mirror was not,
 // this is what puts the save back.
 restoreFromMirror();
+
+// First time in: ask who they are, so the board has something to call them.
+// Left until after the mirror read, or a restored save would be asked anyway.
+setTimeout(() => { if(!meta.name) askName(true); }, 240);
 
 {
   const panel = $("savePanel"), note = $("saveNote"), msg = $("saveMsg");
