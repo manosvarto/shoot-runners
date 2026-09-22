@@ -1,3 +1,21 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<!-- Without this the phone lays the page out at 980px and then shrinks the
+     result to fit, which costs twice: the canvas is sized for a viewport
+     nobody is looking at (8.2 megapixels a frame, scaled down to 42%), and
+     every CSS pixel of HUD lands on the glass at 0.42 of its size. It also
+     detunes the steering, which is calibrated off the viewport width.
+     viewport-fit=cover is what makes the env(safe-area-inset-*) already in
+     the stylesheet return anything but zero on a notched phone. -->
+<meta name="viewport" content="width=device-width, initial-scale=1,
+      maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<!-- A drag across the track must not be read as a pinch or a double-tap
+     zoom; the canvas already sets touch-action:none, this covers the rest. -->
+<meta name="theme-color" content="#171820">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Shout Runner">
 <title>Shout Runner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -62,7 +80,7 @@ body{
 #hud{
   position:fixed; inset:0 0 auto 0;
   display:flex; align-items:flex-start; gap:7px; flex-wrap:wrap;
-  padding:calc(10px + env(safe-area-inset-top)) 58px 0 12px;
+  padding:calc(10px + env(safe-area-inset-top,0px)) 58px 0 12px;
   pointer-events:none;
 }
 .pill{
@@ -104,14 +122,12 @@ body{
 }
 .pnHead{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px}
 #namePanel p, #lbPanel p{font-size:12px; line-height:1.55; color:var(--dim); margin:11px 0 7px}
-#namePanel input, #lbPanel textarea{
+#namePanel input{
   width:100%; box-sizing:border-box; background:var(--track); color:var(--ink);
   border:3px solid var(--ink); border-radius:8px; padding:9px 10px;
-  font:13px/1.4 ui-monospace,"SFMono-Regular",Menlo,monospace; resize:vertical;
-  word-break:break-all;
+  font:17px/1.4 "Bungee",system-ui,sans-serif; letter-spacing:.04em;
 }
-#namePanel input{font-family:"Bungee",system-ui,sans-serif; font-size:17px; letter-spacing:.04em}
-#namePanel input::placeholder, #lbPanel textarea::placeholder{color:var(--empty); font-family:inherit}
+#namePanel input::placeholder{color:var(--empty); font-family:inherit}
 .pnRow{display:flex; gap:9px; margin:9px 0 2px}
 .pnRow>*{flex:1}
 
@@ -191,7 +207,7 @@ body{
 }
 .icon-btn{
   pointer-events:auto; position:fixed;
-  top:calc(10px + env(safe-area-inset-top)); right:12px;
+  top:calc(10px + env(safe-area-inset-top,0px)); right:12px;
   width:38px; height:38px; display:grid; place-items:center;
   background:var(--bone); border:3px solid var(--ink); border-radius:7px;
   box-shadow:4px 4px 0 var(--ink); cursor:pointer; color:var(--ink);
@@ -631,15 +647,9 @@ h2.hd.bad{color:var(--foe)}
   <p class="lbfrom" id="lbFrom"></p>
   <div class="lbhead"><span>#</span><span>Name</span><span>Best</span><span>Kills</span></div>
   <div id="lbRows"></div>
-  <p>Send your score to the group and paste theirs back in.</p>
-  <textarea id="lbOut" readonly rows="2" spellcheck="false"></textarea>
   <div class="pnRow">
-    <button class="btn small" id="lbCopy">Copy mine</button>
     <button class="btn small ghost" id="lbRename">Rename</button>
   </div>
-  <textarea id="lbIn" rows="2" spellcheck="false" placeholder="paste a friend’s score code"></textarea>
-  <div class="pnRow"><button class="btn small ghost" id="lbAdd">Add</button></div>
-  <p id="lbMsg"></p>
 </div>
 
 <div id="savePanel" hidden>
@@ -1288,15 +1298,13 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const KEY = "shoutrunner.v5";
 const FRESH = () => ({
   chips:0, best:0, runs:0, kills:0, color:0, owned:[0], muted:false, hero:0,
-  name:"", board:[],
+  name:"",
   up:{ power:0, rate:0, speed:0, shield:0, roster:0, magnet:0, buster:0, pierce:0, boom:0 }
 });
 function heal(raw){
   const m = Object.assign(FRESH(), raw);
   m.up = Object.assign(FRESH().up, m.up || {});
   if(!Array.isArray(m.owned) || !m.owned.length) m.owned = [0];
-  if(!Array.isArray(m.board)) m.board = [];
-  m.board = m.board.filter(e => e && typeof e.n === "string").slice(0, 60);
   m.name = cleanName(m.name);
   return m;
 }
@@ -1610,8 +1618,16 @@ let W=0,H=0,DPR=1,FOCAL=0,HORIZON=0,SENS=0.03,PROP_SPREAD=4.2;
 function resize(){
   DPR = Math.min(window.devicePixelRatio||1, QUALITY[QLEVEL].dpr);
   W = window.innerWidth; H = window.innerHeight;
-  cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
-  cv.style.width = W+"px"; cv.style.height = H+"px";
+  const bw = Math.round(W*DPR), bh = Math.round(H*DPR);
+  // Setting cv.width reallocates and clears the backing store -- six megabytes
+  // of it on a phone -- so it is only worth doing when the number changed.
+  // A phone fires resize for its own furniture: the address bar sliding away,
+  // the keyboard opening under the name prompt. Those arrive in bursts, and
+  // reallocating through a burst is the stutter you feel.
+  if(cv.width !== bw || cv.height !== bh){
+    cv.width = bw; cv.height = bh;
+    cv.style.width = W+"px"; cv.style.height = H+"px";
+  }
   ctx.setTransform(DPR,0,0,DPR,0,0);
   const wide = W/H > 1.25;
   FOCAL   = Math.max(H*(wide?1.48:1.28), 470);
@@ -1619,7 +1635,14 @@ function resize(){
   PROP_SPREAD = clamp((W/H)*5.5, 4.2, 18);
   SENS    = (TRACK_HALF*2)/(W*0.55);
 }
-addEventListener("resize", () => { resize(); needHud = true; });
+// Coalesced to one a frame: an address bar sliding away fires a dozen.
+let resizePending = false;
+addEventListener("resize", () => {
+  if(resizePending) return;
+  resizePending = true;
+  requestAnimationFrame(() => { resizePending = false; resize(); needHud = true; });
+});
+addEventListener("orientationchange", () => { resize(); needHud = true; });
 resize();
 const scaleAt = z => FOCAL/(z+CAM_BACK);
 const sxOf    = (x,s) => W*0.5 + x*s;
@@ -4545,35 +4568,26 @@ function applyCode(text){
   return null;
 }
 
-/* ── The leaderboard ────────────────────────────────────────────
-   A shared board wants a server to keep the scores on, and this game is a
-   single file on a static host -- there is nowhere to put them. So the board
-   is built the way a group of friends actually compares scores anyway: you
-   copy your line, paste it into the chat, and paste theirs back. Each phone
-   holds the board it has been told about, and your own row is always live
-   from your own save rather than stored, so it can never go stale.
+/* ── The leaderboard ───────────────────────────────────────────────
+   One board, kept on a Worker of your own and keyed by name: finishing a run
+   POSTs your best, opening the panel GETs everybody's. Your own row is drawn
+   live from your own save rather than from the copy the server holds, so it
+   is right the moment a run ends instead of waiting for the next fetch.
 
-   A pasted code is somebody else's claim about their own score. It is
-   checksummed against corruption, not against lying -- anyone determined to
-   top a board they can edit by hand will manage it, and no client-side check
-   changes that. Names are written with textContent, never as HTML, because
-   they arrive from a chat window. */
+   Names are written with textContent, never as HTML, because they arrive
+   from other people's phones. The scores are those phones' claims about
+   themselves -- a board a client can post to is a board a determined player
+   can lie to, and no check on this side of the wire changes that.
 
-const SCORE_MAX = 60;
-
-/* A board everybody sees, without a server to keep it on.
-   `scores.json` sits beside the game on the same static host, so reading it
-   costs nothing and needs no key -- every phone that opens the game gets the
-   same table. Writing to it is the part a static host cannot do: a page
+   Reading a board needs no key, so a plain `scores.json` beside the game
+   would do for that half. Writing is what a static host cannot do: a page
    cannot push to GitHub without a token, and a token in a page anyone can
-   view source on is a token anyone can use to rewrite the repo. GitHub
-   revokes ones it finds leaked, so it would not even keep working. Posting a
-   score therefore goes through an endpoint of your own, set below -- and
-   until one exists, the codes further down are how a score travels. */
-// ONE LINE TO GO LIVE: paste the endpoint's address here and the board
-// becomes shared -- it is read from there when the panel opens and written
-// to when a run ends. Leave it empty and the game falls back to the static
-// scores.json beside it, which is readable but nobody can write to.
+   view source on is a token anyone can use to rewrite the repo. Posting
+   therefore goes through the endpoint below; leave it empty and the game
+   falls back to the static file, which everyone can read and nobody can
+   write. */
+// The endpoint. It is read from when the panel opens and written to when a
+// run ends. Empty falls back to the read-only scores.json beside the game.
 const BOARD_URL  = "https://shoot-runners.manosvarto-6a4.workers.dev/api/board";
 const SCORES_URL = "scores.json";
 let remoteRows = [], remoteAt = 0;
@@ -4605,53 +4619,22 @@ function submitScore(){
   }).then(r => r.ok).catch(() => false);
 }
 
+let openBoard = () => {};
 function myRow(){
   return { n: meta.name || "You", b: meta.best | 0, k: meta.kills | 0,
            r: meta.runs | 0, t: Date.now(), me: 1 };
 }
-function scoreCode(){
-  const body = b64.enc({ n: meta.name || "You", b: meta.best | 0,
-                         k: meta.kills | 0, r: meta.runs | 0, t: Date.now() });
-  return "SRB1-" + sum4(body) + "-" + body;
-}
-function addScoreCode(text){
-  const t = (text || "").trim().replace(/\s+/g, "");
-  const m = /^SRB1-([a-z0-9]{4})-(.+)$/i.exec(t);
-  if(!m) return "That is not a score code.";
-  if(sum4(m[2]) !== m[1].toLowerCase()) return "That code is damaged — copy the whole thing.";
-  let e;
-  try{ e = b64.dec(m[2]); }catch{ return "That code could not be read."; }
-  const n = cleanName(e && e.n);
-  if(!n) return "That code has no name on it.";
-  if(n.toLowerCase() === (meta.name || "").toLowerCase())
-    return "That is your own code.";
-  const row = { n, b: Math.max(0, e.b | 0), k: Math.max(0, e.k | 0),
-                r: Math.max(0, e.r | 0), t: e.t | 0 };
-  // One row per person: a newer code from the same name replaces the old one
-  // rather than stacking up next to it.
-  const at = meta.board.findIndex(x => x.n.toLowerCase() === n.toLowerCase());
-  if(at >= 0){
-    if((meta.board[at].t | 0) > row.t) return "You already have a newer score for " + n + ".";
-    meta.board[at] = row;
-  }else{
-    meta.board.push(row);
-  }
-  meta.board = meta.board.slice(0, SCORE_MAX);
-  save();
-  return null;
-}
-
 function paintBoard(){
-  // Three sources, one row per name: the shared file, the codes this phone
-  // has been given, and you. Whoever holds the higher score for a name wins,
-  // so a friend's fresh code is not hidden by a stale line in the file.
+  // Two sources, one row per name: the board the server holds, and you.
+  // Your own row always wins its name, so the run just finished shows up at
+  // once rather than the older figure the server may still be holding.
   const by = new Map();
   const put = r => {
     const k = r.n.toLowerCase();
     const cur = by.get(k);
     if(!cur || r.me || (!cur.me && r.b > cur.b)) by.set(k, r);
   };
-  remoteRows.forEach(put); meta.board.forEach(put); put(myRow());
+  remoteRows.forEach(put); put(myRow());
   const rows = [...by.values()]
     .sort((a, b) => (b.b - a.b) || (b.k - a.k) || a.n.localeCompare(b.n));
   const host = $("lbRows");
@@ -4674,11 +4657,16 @@ function paintBoard(){
   });
 }
 
+// Both cards are centred on the same spot, so Rename has to move the board
+// out of the way -- left up, it covers the very field it just sent you to.
+let nameFromBoard = false;
 function askName(first){
   const panel = $("namePanel"), inp = $("nameIn"), msg = $("nameMsg");
   msg.textContent = "";
   inp.value = meta.name || "";
   $("nameOk").textContent = first ? "START" : "SAVE";
+  nameFromBoard = !$("lbPanel").hidden;
+  $("lbPanel").hidden = true;
   panel.hidden = false;
   setTimeout(() => { try{ inp.focus(); }catch{} }, 30);
 }
@@ -4689,14 +4677,17 @@ function askName(first){
     const n = cleanName(inp.value);
     if(!n){ msg.textContent = "Put a name in first."; return; }
     meta.name = n; save(); panel.hidden = true;
-    try{ paintBoard(); $("lbOut").value = scoreCode(); }catch{}
+    // Coming back from Rename, reopen the board -- and reopening posts, so
+    // the new name reaches the server instead of waiting for the next run.
+    if(nameFromBoard){ nameFromBoard = false; openBoard(); }
+    else try{ paintBoard(); }catch{}
   };
   $("nameOk").addEventListener("click", commit);
   inp.addEventListener("keydown", e => { if(e.key === "Enter") commit(); });
 }
 
 {
-  const panel = $("lbPanel"), msg = $("lbMsg");
+  const panel = $("lbPanel");
   const from = $("lbFrom");
   const sayFrom = () => {
     // An empty shared file is not a shared board yet -- say so rather than
@@ -4705,23 +4696,19 @@ function askName(first){
       ? "Everyone · " + remoteRows.length + " player" + (remoteRows.length === 1 ? "" : "s")
       : "This phone only";
   };
-  $("btnBoard").addEventListener("click", () => {
-    paintBoard(); sayFrom(); $("lbOut").value = scoreCode();
-    $("lbIn").value = ""; msg.textContent = "";
+  openBoard = () => {
+    // Paint from what is already in hand first, so the panel is never blank
+    // while the network makes up its mind; the fetch repaints it after.
+    paintBoard(); sayFrom();
     panel.hidden = false;
-    fetchScores().then(ok => { if(ok){ paintBoard(); sayFrom(); } });
-  });
+    // Post before reading, so the run just finished is in the table the read
+    // comes back with instead of it arriving one board behind.
+    submitScore().then(() => fetchScores())
+                 .then(ok => { if(ok){ paintBoard(); sayFrom(); } });
+  };
+  $("btnBoard").addEventListener("click", openBoard);
   $("lbClose").addEventListener("click", () => { panel.hidden = true; });
   $("lbRename").addEventListener("click", () => askName(false));
-  $("lbCopy").addEventListener("click", async () => {
-    try{ await navigator.clipboard.writeText($("lbOut").value); msg.textContent = "Copied — paste it to your friends."; }
-    catch{ $("lbOut").select(); msg.textContent = "Press and hold to copy."; }
-  });
-  $("lbAdd").addEventListener("click", () => {
-    const err = addScoreCode($("lbIn").value);
-    msg.textContent = err || "Added.";
-    if(!err){ $("lbIn").value = ""; paintBoard(); }
-  });
 }
 
 // Before anything writes: if localStorage was cleared but the mirror was not,
