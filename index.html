@@ -196,6 +196,26 @@ body{
 .devRow span{font-weight:700}
 .devRow i{font-style:normal; font-family:"Bungee",system-ui,sans-serif; color:#C9A0FF}
 .devRow input{grid-column:1/-1; width:100%; accent-color:#8E2FCB}
+/* The board tools. Kept visually apart from the sliders above them,
+   because these reach the SERVER and everything else in this panel only
+   touches the run in front of you. */
+.devLb{margin-top:10px; padding-top:9px; border-top:2px solid rgba(255,249,238,.18)}
+.devLb b{font-family:"Bungee",system-ui,sans-serif; color:#C9A0FF; letter-spacing:.06em}
+.devLb .lbtools{display:flex; gap:6px; margin:7px 0}
+.devLb input{
+  flex:1; min-width:0; font:inherit; color:var(--bone); background:#171820;
+  border:2px solid var(--ink); border-radius:6px; padding:5px 7px;
+}
+.devLb button{
+  font-family:"Bungee",system-ui,sans-serif; font-size:10px; color:var(--bone);
+  background:#3A2350; border:2px solid var(--ink); border-radius:6px;
+  padding:5px 8px 3px; box-shadow:2px 2px 0 var(--ink); flex:none;
+}
+.dvrow{display:flex; align-items:center; gap:8px; margin:5px 0}
+.dvrow span{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.dvrow em{font-style:normal; color:#C9A0FF; font-variant-numeric:tabular-nums}
+.dvrow button{background:#8E1B14; padding:4px 7px 2px; font-size:9px}
+.dvmsg{margin:6px 0 0; color:var(--empty); line-height:1.5}
 .devSw{display:flex; align-items:center; gap:8px; margin:8px 0; font-weight:700}
 .devSw input{width:18px; height:18px; accent-color:#8E2FCB}
 .devBtns{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px}
@@ -726,6 +746,17 @@ h2.hd.bad{color:var(--foe)}
     <button data-do="clear">CLEAR THE FIELD</button>
     <button data-do="keep">JUMP TO THE KEEP</button>
     <button data-do="wipe" class="danger">RESET SAVE</button>
+  </div>
+  <div class="devLb">
+    <b>LEADERBOARD</b>
+    <div class="lbtools">
+      <input id="dvKey" type="password" autocomplete="off" spellcheck="false"
+             placeholder="admin key">
+      <button id="dvLoad">LOAD</button>
+    </div>
+    <div id="dvRows"></div>
+    <p class="dvmsg" id="dvMsg">The key is the one set as ADMIN_KEY on the
+       worker. It is kept on this phone only and never goes into your save.</p>
   </div>
   <p class="devNote">Multipliers apply live. Crew at start needs a new run; the
      troop buttons land in the run you are already in, so they do nothing on
@@ -1323,7 +1354,11 @@ const PERKS = [
     apply:g => g.perk.reach += 0.3  }
 ];
 const perkOf = k => PERKS.find(p => p.k === k);
-const PERK_CHANCE = 0.22;      // of a gate row carrying one at all
+// Of a gate row carrying one at all. Raised from 0.22, which put a perk on
+// one row in 4.6; this is one in 3.3. Each perk is only worth +3% since they
+// stopped multiplying, so meeting them a little more often is what keeps the
+// gates worth reading.
+const PERK_CHANCE = 0.30;
 
 // ── Portals ────────────────────────────────────────────────────
 // A perk changes a number on the King. A portal hands him MEN, and the men
@@ -1336,7 +1371,12 @@ const PORTALS = [
     sprite:"bomber", blurb:"10x in a 4x4, then gone" }
 ];
 const portalOf = k => PORTALS.find(p => p.k === k);
-const PORTAL_CHANCE = 0.07;    // rare: roughly one row in fourteen
+// Rare, and rolled only on rows that did NOT get a perk -- so this number is
+// not the rate, (1 - PERK_CHANCE) * this is. Which means raising PERK_CHANCE
+// alone would have made portals RARER: at 0.30 and 0.07 the real rate drops
+// from 5.5% of rows to 4.9%. Raised to 0.10 to clear that and gain a little:
+// 0.70 * 0.10, about one row in fourteen, measured.
+const PORTAL_CHANCE = 0.10;
 
 const CANNON_HIT  = 1.5;       // vs anything
 const CANNON_WALL = 4;         // vs a wall, and only a wall
@@ -1427,21 +1467,79 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // ── Meta progression ───────────────────────────────────────────
 const KEY = "shoutrunner.v5";
+
+/* ── The levelling ─────────────────────────────────────────────
+   A one-time wipe of the ECONOMY, so nobody is carrying a wallet built
+   under the old prices into the new ones. Raise RESET_EPOCH to run another;
+   a save that has already been through this one is left alone, so it fires
+   once per player and never undoes progress made after it.
+
+   What it clears: chips, machine upgrades, and prizes banked for a run not
+   yet taken. That is the whole of what "coins and power-ups" means here.
+
+   What it MUST NOT clear, and why: name, best, kills and runs. Those four
+   ARE the leaderboard row -- submitScore() posts exactly {n,b,k,r} from
+   this object, and the board is keyed by name. Zeroing `best` would not
+   leave the board alone; it would have every player's next finished run
+   overwrite their own row with a zero, which is the board deleting itself
+   one player at a time. The server keeps the board and nothing here
+   touches it.
+
+   It lives in heal() rather than load() because heal() is the one gate
+   every save passes through -- localStorage, and the IndexedDB mirror that
+   gets adopted a moment after boot. In load() alone, the mirror would walk
+   a pre-wipe save straight back in. */
+const RESET_EPOCH = 1;
+
 const FRESH = () => ({
   chips:0, best:0, runs:0, kills:0, color:0, owned:[0], muted:false, hero:0,
-  name:"", pending:[],
+  name:"", pending:[], epoch:0, uid:"", wasNamed:[],
   up:{ power:0, rate:0, speed:0, shield:0, roster:0, magnet:0, buster:0, pierce:0, boom:0 }
 });
+// How many one-run prizes can be carried into a single run. Enough to stack
+// a few, not enough for a thousand auto-spins to become an unplayable
+// opening. Anything past it simply is not banked.
+// Declared HERE, above heal(), and not down beside the prize table: heal()
+// caps `pending` with it and runs before that part of the file has been
+// evaluated.
+const PENDING_MAX = 8;
+
 function heal(raw){
   const m = Object.assign(FRESH(), raw);
   m.up = Object.assign(FRESH().up, m.up || {});
   if(!Array.isArray(m.owned) || !m.owned.length) m.owned = [0];
-  // Prizes won for a run that has not been taken yet. Filtered against the
-  // table on load, so a save written by an older build cannot hand the next
-  // run something this one has never heard of.
+  // Prizes won for a run that has not been taken yet. Shape only here --
+  // strings, capped. It USED to also filter them against the prize table,
+  // via runPrizeOf(), and that was a live bug: heal() runs at `let meta =
+  // load()`, which is ~80 lines ABOVE where RUNPRIZES and PENDING_MAX are
+  // declared, so touching either threw a TDZ ReferenceError that load()'s
+  // own catch swallowed -- and every returning player's save was quietly
+  // replaced with a blank one. It was invisible because the IndexedDB
+  // mirror adopted the real save a moment later and put it back; on any
+  // browser where IndexedDB is refused, the save simply vanished each boot.
+  // Nothing is lost by dropping the check: both places that spend a pending
+  // prize already skip a key they do not recognise.
   m.pending = (Array.isArray(m.pending) ? m.pending : [])
-                .filter(k => runPrizeOf(k)).slice(0, PENDING_MAX);
+                .filter(k => typeof k === "string").slice(0, PENDING_MAX);
   m.name = cleanName(m.name);
+  // Who this save IS, as far as the board is concerned. Minted once and then
+  // never changed, never shown and never typed -- the board used to be keyed
+  // by NAME, so renaming yourself did not move your row, it started a second
+  // one and left the first standing for ever. Identity has to be something
+  // the player cannot edit.
+  if(!/^[a-z0-9]{16}$/.test(m.uid || "")) m.uid = mintUid();
+  // Every name this save has answered to, so the server can be told which
+  // orphan row was mine. Bounded: a player who renames all afternoon should
+  // not grow an unbounded list inside their own save.
+  m.wasNamed = (Array.isArray(m.wasNamed) ? m.wasNamed : [])
+                 .map(cleanName).filter(Boolean).slice(-6);
+  // The levelling. Note what is NOT in here: see RESET_EPOCH above.
+  if((m.epoch | 0) < RESET_EPOCH){
+    m.epoch  = RESET_EPOCH;
+    m.chips  = 0;
+    m.up     = FRESH().up;
+    m.pending = [];
+  }
   return m;
 }
 
@@ -1453,12 +1551,31 @@ function cleanName(v){
     .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
     .replace(/\s+/g, " ").trim().slice(0, 14);
 }
+// crypto.randomUUID is not everywhere (it needs a secure context, and this
+// game is opened from file:// as often as from https), so the random source
+// is tried in order and the clock is the floor -- an id that collides is a
+// shared row, which is the very bug this exists to fix.
+function mintUid(){
+  try{
+    const a = new Uint8Array(8);
+    crypto.getRandomValues(a);
+    return [...a].map(v => v.toString(16).padStart(2, "0")).join("");
+  }catch{}
+  let out = "";
+  while(out.length < 16) out += Math.floor(Math.random()*16).toString(16);
+  return (Date.now().toString(16) + out).slice(-16);
+}
+
 function load(){
+  // Every path goes through heal(), including the two that look like they
+  // have nothing to heal. A FRESH() returned raw is a save with no uid, and
+  // a player with no uid is exactly the player the board cannot key -- they
+  // post as a name, like before, and renaming leaves the duplicate this was
+  // written to stop. The fresh player is the COMMON case here, not an edge.
   try{
     const raw = localStorage.getItem(KEY);
-    if(!raw) return FRESH();
-    return heal(JSON.parse(raw));
-  }catch{ return FRESH(); }
+    return heal(raw ? JSON.parse(raw) : {});
+  }catch{ return heal({}); }
 }
 
 /* ── Keeping the save ───────────────────────────────────────────
@@ -1648,9 +1765,6 @@ const RUNPRIZES = [
 ];
 RUNPRIZES.forEach(r => { r.col = RUN_PINK; r.oneRun = true; });
 const runPrizeOf = k => RUNPRIZES.find(r => r.k === k);
-// Enough to stack a few, not enough for a thousand auto-spins to become an
-// unplayable opening. Anything past it simply is not banked.
-const PENDING_MAX = 8;
 // What the reels can land on. The two pools are rolled SEPARATELY -- see
 // rollOutcome -- but the spinning blur draws from both, because a face you
 // never see whirl past is a face you do not know exists.
@@ -5153,6 +5267,82 @@ function frame(now){
       localStorage.removeItem(KEY); location.reload();
     }
   });
+  /* ── The board, by hand ──────────────────────────────────────
+     Rows the owner wants gone. Renaming moves a row rather than copying it
+     now, so nothing NEW should turn up here twice; what this is for is the
+     duplicates left behind by renames from before that was true, which
+     nothing can identify automatically because nobody recorded whose they
+     were.
+
+     The key is typed, never shipped. Dev mode opens on three taps of the
+     logo, so it is not a private room -- baking an admin key into a file
+     every player has a copy of would hand the board to all of them. It is
+     kept under its own localStorage key rather than in `meta`, so it never
+     rides along in the save, the IndexedDB mirror, or anything the game
+     ever writes out. */
+  const KEYSTORE = KEY + ".adminkey";
+  const keyIn = $("dvKey"), rowsEl = $("dvRows"), msgEl = $("dvMsg");
+  if(keyIn && rowsEl){
+    try{ keyIn.value = localStorage.getItem(KEYSTORE) || ""; }catch{}
+    const say = t => { msgEl.textContent = t; };
+    const adminKey = () => {
+      const v = keyIn.value.trim();
+      try{ v ? localStorage.setItem(KEYSTORE, v) : localStorage.removeItem(KEYSTORE); }catch{}
+      return v;
+    };
+    let rows = [];
+    const paintRows = () => {
+      rowsEl.textContent = "";
+      for(const r of rows){
+        const div = document.createElement("div"); div.className = "dvrow";
+        const nm = document.createElement("span");
+        // textContent, never HTML: these names came off other people's
+        // phones, and this panel draws them the same way the board does.
+        nm.textContent = r.n;
+        const v = document.createElement("em");
+        v.textContent = (r.b | 0) + "m";
+        const del = document.createElement("button");
+        del.textContent = "DELETE";
+        del.addEventListener("click", async () => {
+          if(!confirm("Delete " + r.n + " (" + (r.b|0) + "m) from the board?")) return;
+          const k = adminKey();
+          if(!k) return say("Put the admin key in first.");
+          del.disabled = true;
+          // Targeted by id when the row has one, so a name shared by two
+          // rows cannot take the wrong one with it.
+          const q = r.id ? "id=" + encodeURIComponent(r.id)
+                         : "n=" + encodeURIComponent(r.n);
+          try{
+            const res = await fetch(BOARD_URL + "?" + q,
+              { method:"DELETE", headers:{ "X-Admin-Key": k } });
+            if(res.status === 404) return say("That key is not the one the worker has.");
+            if(!res.ok) return say("The worker said no (" + res.status + ").");
+            const out = await res.json();
+            rows = rows.filter(x => x !== r);
+            paintRows();
+            say("Dropped " + out.dropped + ". " + out.left + " left on the board.");
+            remoteAt = 0;                       // make the next open refetch
+          }catch{ say("Could not reach the board."); }
+          finally{ del.disabled = false; }
+        });
+        div.append(nm, v, del); rowsEl.appendChild(div);
+      }
+      if(!rows.length) say("Nothing on the board.");
+    };
+    $("dvLoad").addEventListener("click", async () => {
+      say("Loading\u2026");
+      try{
+        const res = await fetch(BOARD_URL + "?t=" + Date.now());
+        if(!res.ok) return say("The board would not load (" + res.status + ").");
+        const data = await res.json();
+        rows = Array.isArray(data) ? data.slice() : [];
+        rows.sort((a, b) => (b.b | 0) - (a.b | 0));
+        paintRows();
+        if(rows.length) say(rows.length + " rows. Delete needs the key.");
+      }catch{ say("Could not reach the board."); }
+    });
+  }
+
   // The note quotes the cap, so take it from the constant rather than
   // leaving a number in the prose to go stale.
   { const el = $("dvCap"); if(el) el.textContent = String(CANNON_CAP); }
@@ -5205,27 +5395,56 @@ function submitScore(){
   if(!BOARD_URL || !meta.name) return Promise.resolve(false);
   return fetch(BOARD_URL, {
     method: "POST", headers: { "Content-Type": "application/json" },
+    // `id` is who this save is; `was` is the names it used to answer to, so
+    // the server can retire the rows a rename left behind.
     body: JSON.stringify({ n: meta.name, b: meta.best | 0, k: meta.kills | 0,
-                           r: meta.runs | 0 }),
+                           r: meta.runs | 0, id: meta.uid,
+                           was: (meta.wasNamed || []).slice() }),
   }).then(r => r.ok).catch(() => false);
 }
 
 let openBoard = () => {};
 function myRow(){
   return { n: meta.name || "You", b: meta.best | 0, k: meta.kills | 0,
-           r: meta.runs | 0, t: Date.now(), me: 1 };
+           r: meta.runs | 0, t: Date.now(), me: 1, id: meta.uid };
 }
 function paintBoard(){
-  // Two sources, one row per name: the board the server holds, and you.
-  // Your own row always wins its name, so the run just finished shows up at
-  // once rather than the older figure the server may still be holding.
+  // Two sources, one row per PLAYER: the board the server holds, and you.
+  // Your own row always wins, so the run just finished shows up at once
+  // rather than the older figure the server may still be holding.
+  //
+  // Keyed on the row's id where it has one, and only on the name where it
+  // does not. Keying on the name was what put the same person on the board
+  // twice: rename yourself and the old spelling and the new one are two
+  // different keys, so both rows drew. It also quietly did the opposite --
+  // two players who picked the same name shared one row and one of them
+  // never appeared at all.
   const by = new Map();
   const put = r => {
-    const k = r.n.toLowerCase();
+    const k = r.id ? "#" + r.id : "@" + String(r.n).toLowerCase();
     const cur = by.get(k);
     if(!cur || r.me || (!cur.me && r.b > cur.b)) by.set(k, r);
   };
-  remoteRows.forEach(put); put(myRow());
+  remoteRows.forEach(put);
+  // Mine goes in last and under my own id, so the server's copy of me --
+  // which may still be filed under the name I just left -- is dropped here
+  // too, rather than waiting for the server to catch up.
+  const mine = myRow();
+  if(mine.id){
+    const mineToo = r =>
+      // Filed under my id: plainly me.
+      r.id === mine.id ||
+      // Or filed under no id at all, and under a name I answer to -- either
+      // the one I have now, because the server has not been told about my id
+      // yet, or one I used to have, because it has not been told I renamed.
+      // Both are the same row of mine seen before it caught up, and leaving
+      // either in is what drew me on the board twice.
+      (!r.id && (String(r.n).toLowerCase() === String(mine.n).toLowerCase() ||
+                 (meta.wasNamed || []).some(w =>
+                    w.toLowerCase() === String(r.n).toLowerCase())));
+    for(const [k, r] of [...by]) if(mineToo(r)) by.delete(k);
+  }
+  put(mine);
   const rows = [...by.values()]
     .sort((a, b) => (b.b - a.b) || (b.k - a.k) || a.n.localeCompare(b.n));
   const host = $("lbRows");
@@ -5267,6 +5486,15 @@ function askName(first){
   const commit = () => {
     const n = cleanName(inp.value);
     if(!n){ msg.textContent = "Put a name in first."; return; }
+    const leaving = meta.name;
+    if(leaving && leaving.toLowerCase() !== n.toLowerCase()){
+      const was = meta.wasNamed || (meta.wasNamed = []);
+      // The name being left, and never the one being taken -- a list that
+      // held your current name would have the server retire the row it just
+      // wrote.
+      if(!was.some(w => w.toLowerCase() === leaving.toLowerCase())) was.push(leaving);
+      meta.wasNamed = was.filter(w => w.toLowerCase() !== n.toLowerCase()).slice(-6);
+    }
     meta.name = n; save(); panel.hidden = true;
     // Coming back from Rename, reopen the board -- and reopening posts, so
     // the new name reaches the server instead of waiting for the next run.
