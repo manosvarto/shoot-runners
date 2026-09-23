@@ -994,9 +994,25 @@ function threatMul(){
   const dps = st.power * perkDmg() * (st.rate/1.6) * perkRate() * G.fire;
   return 1 + Math.min(2.0, Math.sqrt(Math.max(1, dps)) * 0.12);
 }
+// A SECOND knee. The first one turns a doubling into a straight line of about
+// 31 points a second, and a straight line with no end beats any player whose
+// damage has a ceiling -- which every build does, because the volley clamps
+// at 30 arrows and Fire stops at 9. That is what "they don't die" is: not a
+// number that is too high, a slope that never stops.
+//
+// Past HP_KNEE2 the line bends again. Health still climbs for the whole run,
+// so a run still ends; it stops being the only thing that decides when.
+// 6000 is chosen so the bend lands where health is actually the problem and
+// nowhere else. A player with no upgrades meets nothing above it until about
+// 300s, and they die well before that, so their first three minutes are
+// untouched. A developed build, which lives out past 400s, sees its health
+// wall cut by 11% at 420s, 22% at 540s, 30% at 660s (~13k) and 42% at 900s.
+const HP_KNEE2   = 6000;   // where the straight line starts to bend
+const HP_KNEE2_K = 0.7;    // how hard. Lower bends more.
 const enemyHpAt  = t => {
   const raw = HP_BASE * Math.pow(2, t/HP_DOUBLE);
-  const hp = raw <= HP_KNEE ? raw : HP_KNEE * (1 + Math.log2(raw/HP_KNEE)*0.55);
+  let hp = raw <= HP_KNEE ? raw : HP_KNEE * (1 + Math.log2(raw/HP_KNEE)*0.55);
+  if(hp > HP_KNEE2) hp = HP_KNEE2 * (1 + Math.log2(hp/HP_KNEE2)*HP_KNEE2_K);
   return Math.max(1, Math.round(hp * dv().ehp));
 };
 // Grade is read off the survival clock rather than the health number, so
@@ -2460,7 +2476,9 @@ function spawnWall(z){
 // the run had at 60s. Declared ABOVE the function that reads them, not
 // below: a const read before its declaration is a ReferenceError, and this
 // file has already shipped that bug once.
-const LATE_FROM = 170, LATE_OVER = 240, LATE_MAX = 1.6;
+const LATE_FROM = 170;   // when the stream starts thinning back out
+const LATE_OVER = 240;   // seconds per step of the easing
+const LATE_MAX  = 1.6;   // how far it goes: 2.6x the gap, and no further
 const spawnGapAt = t => {
   const tighten = clamp(0.140 - t*0.00044, 0.062, 0.140) * (1 + 5*Math.exp(-t/12));
   const ease    = 1 + clamp((t - LATE_FROM)/LATE_OVER, 0, LATE_MAX);
@@ -2541,13 +2559,26 @@ function spawnEnemy(){
 // Chips only ever come off an enemy the crew actually shot. A body that
 // died in the collision trade leaves nothing behind — that is the whole
 // cost of letting one reach you.
+// What a body is worth. The levelling took 42 upgrade levels off every
+// player, and getting them back was a climb nobody signed up for: measured on
+// the machine's own rolls, 479 spins at 500 chips each is 239,500 chips, and
+// a run with nothing bought paid about a thousand -- roughly 245 runs to
+// stand where you stood before the wipe. That is the real content of "we feel
+// weaker than the patch before the reset", and no enemy needed nerfing for
+// it.
+//
+// This is the lever rather than the spin price because it pays for PLAYING.
+// Re-pricing the machine would hand the same discount to a wallet that was
+// never earned.
+const CHIP_WORTH = 2.5;
 function dropChip(x, z, tier){
   // Chips bounce off the body rather than landing on the spot. Now that
   // nothing homes, a chip dropped exactly where the shot landed would sit
   // in the lane you are already driving down and collect itself; the
   // scatter is what makes walking over one an actual decision.
   const cx = clamp(x + (Math.random()*2-1)*1.9, -TRACK_HALF+0.2, TRACK_HALF-0.2);
-  G.chips.push({ x:cx, z: z + (Math.random()*2-1)*1.4, taken:false, worth: 1 + tier, born:G.t });
+  G.chips.push({ x:cx, z: z + (Math.random()*2-1)*1.4, taken:false,
+                 worth: Math.round((1 + tier) * CHIP_WORTH), born:G.t });
 }
 
 // ── Effects ────────────────────────────────────────────────────
