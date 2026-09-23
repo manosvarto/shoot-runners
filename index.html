@@ -2439,7 +2439,33 @@ function spawnWall(z){
 // The gap floor is a body count as much as a rate: the far half of the track
 // compresses into a solid mass however fast they die, so the floor is what
 // actually decides how packed the end of a long run looks.
-const spawnGapAt = t => clamp(0.140 - t*0.00044, 0.062, 0.140) * (1 + 5*Math.exp(-t/12));
+// Past three minutes the gap used to sit on its 0.062s floor for the whole
+// rest of the run -- sixteen bodies a second, forever -- while enemy health
+// went on climbing about thirty points a second and the volley stopped
+// growing at all (the arrow count hits its ceiling of 30 at a crew of 87, and
+// Fire stops at 9). Measured on a maxed loadout, the share of the stream the
+// crew could actually kill fell to 32% by 420s, 24% by 540s and 19% by 660s,
+// which is the 10-13k band: three bodies in four walked the whole track into
+// the crew whatever the player did, and the screen was a wall while it
+// happened. That is not difficulty, it is an arithmetic timer with a crowd
+// drawn on top.
+//
+// So the stream THINS BACK OUT once the bodies are hard enough to carry the
+// difficulty on their own. Health still climbs, the run still ends, but the
+// late game is a few tough things to read and thread instead of a sixteen-a-
+// second wall of them.
+// Where the thinning starts, how long it takes to arrive, and how far it
+// goes. 1.6 halves the late stream and no more: at the end of a ten-minute
+// run it is still six bodies a second, which is the density the middle of
+// the run had at 60s. Declared ABOVE the function that reads them, not
+// below: a const read before its declaration is a ReferenceError, and this
+// file has already shipped that bug once.
+const LATE_FROM = 170, LATE_OVER = 240, LATE_MAX = 1.6;
+const spawnGapAt = t => {
+  const tighten = clamp(0.140 - t*0.00044, 0.062, 0.140) * (1 + 5*Math.exp(-t/12));
+  const ease    = 1 + clamp((t - LATE_FROM)/LATE_OVER, 0, LATE_MAX);
+  return tighten * ease;
+};
 // A hard ceiling on live bodies. The design doc's original worry was cheap
 // phones, and this is the number that protects them -- and since a long run
 // sits ON this number rather than near it, it is also the single knob that
@@ -2559,7 +2585,30 @@ function rubble(x, z, n, col, force){
 
 // ── Firing: every shot is a straight line, no exceptions ───────
 // One arrow's worth of damage — the yardstick both portals are priced in.
-function arrowDmg(){ return 10 * G.st.power * G.fire * boostMul('dmg') * perkDmg(); }
+// The volley's arrow count tops out at 30, which a crew of 87 already
+// reaches. Past that every extra man used to buy exactly nothing: a mob of
+// 900 fired the same shots as a mob of 87, so the one reward the game hands
+// out stopped being a reward at the precise point the stream began to need
+// it. Now they lend weight to the shots instead.
+//
+// Square-rooted and capped, and that is not caution for its own sake: folded
+// in linearly once before, a crew of 900 one-shot everything on the track
+// however far the clock had scaled it, and enemy health stopped meaning
+// anything at all.
+//
+// It tops out at x2, reached at a crew of 180, and the ceiling is doing real
+// work: at x3 (crew 450) a fully upgraded build killed 142-200% of the late
+// stream, which is a run that ends only by arriving at the keep. At x2 the
+// same build sits near 100% -- it can hold the line and it can lose it.
+// A freshly reset player is unaffected by the ceiling either way: their mob
+// runs at about 150, well under where the cap starts to bite.
+const CREW_FREE = 90;    // men the arrow count already pays for
+const CREW_PER  = 90;    // men per step of the root
+const CREW_MAX  = 1.0;   // ceiling on what the extra weight can add
+const massMul = crew => 1 + Math.min(CREW_MAX,
+                          Math.sqrt(Math.max(0, crew - CREW_FREE)/CREW_PER));
+function arrowDmg(){ return 10 * G.st.power * G.fire * boostMul('dmg') * perkDmg()
+                            * massMul(Math.floor(G.crowd)); }
 
 // ── What the boss is worth ─────────────────────────────────────
 // Its health used to ride the survival clock alone, which meant it was either
@@ -2691,7 +2740,7 @@ function fireVolley(){
   const k = clamp(Math.round((1 + Math.floor(crew/3)) * boostMul('arrows')), 1, 30);
   // Piercing Shots is a won upgrade now, topped up by raw firepower.
   const pierce = st.pierce + Math.floor(G.fire / 2.6) + boostAdd('pierce') + G.perk.pierce;
-  const dmg = 10 * st.power * G.fire * boostMul('dmg') * perkDmg();
+  const dmg = 10 * st.power * G.fire * boostMul('dmg') * perkDmg() * massMul(crew);
   const frontZ = frontZOf(G.minions.length);
   // EVERY MAN SHOOTS FROM HIS OWN MIDDLE, STRAIGHT UP HIS OWN LANE.
   // No convergence, no fan: an arrow leaves the centre of the character
