@@ -109,6 +109,24 @@ export default {
     }
 
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
+
+    // Is this the key this worker was given? Asked by the dev room before it
+    // opens at all, so the owner types one key and it serves for both getting
+    // in and deleting rows.
+    //
+    // `configured` is answered honestly even to a wrong key, and that is
+    // deliberate rather than sloppy: with no ADMIN_KEY set there is nothing
+    // to guess and nothing to protect, and the game needs to tell "you typed
+    // it wrong" apart from "the owner has not set one yet" or the dev room
+    // locks its own owner out of the room where the instructions live.
+    if (new URL(request.url).pathname === "/api/admin") {
+      const key = env.ADMIN_KEY || "";
+      if (!key) return reply({ ok: false, configured: false });
+      const sent = request.headers.get("X-Admin-Key") || "";
+      const ok = sent.length === key.length && sent === key;
+      return reply({ ok, configured: true }, ok ? 200 : 403);
+    }
+
     if (!env.SCORES) return reply({ error: "No KV binding named SCORES" }, 500);
 
     let board = [];

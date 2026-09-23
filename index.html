@@ -82,7 +82,11 @@ body{
 #hud{
   position:fixed; inset:0 0 auto 0;
   display:flex; align-items:flex-start; gap:7px; flex-wrap:wrap;
-  padding:calc(10px + env(safe-area-inset-top,0px)) 58px 0 12px;
+  /* The right padding has to clear BOTH buttons, not just the mute plaque:
+     pause sits at right:76 and is 38 wide, so anything under 114px lets a
+     pill slide beneath it. It was 58, and a pill has been hiding under the
+     pause button at 320 and 360 for as long as the button has existed. */
+  padding:calc(10px + env(safe-area-inset-top,0px)) 120px 0 12px;
   pointer-events:none;
 }
 .pill{
@@ -111,19 +115,21 @@ body{
 .savenote{font-size:11px; color:var(--dim); line-height:1.3}
 /* The board and the name prompt are the menu card, not the dev room: bone,
    four-pixel ink, a hard offset shadow and Bungee on the headings. */
-#namePanel, #lbPanel, #winPanel, #pausePanel, #powerPanel{
+#namePanel, #lbPanel, #winPanel, #pausePanel, #powerPanel, #devKeyPanel{
   position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
   width:min(392px, calc(100vw - 26px)); max-height:min(82vh, 700px); overflow:auto;
   z-index:63; background:var(--bone); color:var(--ink);
   border:4px solid var(--ink); border-radius:12px; box-shadow:9px 9px 0 var(--ink);
   padding:18px 18px 20px;
 }
-#namePanel h2, #lbPanel h2, #winPanel h2, #pausePanel h2, #powerPanel h2{
+#namePanel h2, #lbPanel h2, #winPanel h2, #pausePanel h2, #powerPanel h2,
+#devKeyPanel h2{
   font-family:"Bungee",system-ui,sans-serif; font-size:19px; letter-spacing:.06em;
   margin:0; color:var(--ink);
 }
 .pnHead{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px}
-#namePanel p, #lbPanel p, #winPanel p, #pausePanel p, #powerPanel p{font-size:12px; line-height:1.55; color:var(--dim); margin:11px 0 7px}
+#namePanel p, #lbPanel p, #winPanel p, #pausePanel p, #powerPanel p,
+#devKeyPanel p{font-size:12px; line-height:1.55; color:var(--dim); margin:11px 0 7px}
 #pausePanel .pausenote{font-size:11px; margin-top:12px}
 /* One row per power-up: a coloured chip or its own icon, then what it does. */
 #powerList h3{
@@ -142,6 +148,11 @@ body{
 .pwr i{display:block; font-size:11px; font-style:normal; color:var(--dim); line-height:1.35}
 #winPanel .winbig{font-size:14px; line-height:1.5; color:var(--ink); font-weight:600}
 #winPanel .lbhead{margin-top:14px}
+#devKeyPanel input{
+  width:100%; box-sizing:border-box; font:inherit; font-size:15px;
+  color:var(--ink); background:#fff; border:3px solid var(--ink);
+  border-radius:9px; padding:9px 11px; margin:2px 0 12px;
+}
 #namePanel input{
   width:100%; box-sizing:border-box; background:var(--track); color:var(--ink);
   border:3px solid var(--ink); border-radius:8px; padding:9px 10px;
@@ -291,7 +302,10 @@ h2.hd.bad{color:var(--foe)}
 .btn[disabled]{background:color-mix(in srgb, var(--ink) 14%, var(--bone)); color:var(--dim); cursor:not-allowed; box-shadow:5px 5px 0 color-mix(in srgb, var(--ink) 45%, transparent)}
 .row{display:flex; gap:11px}
 .row>*{flex:1}
-.stats{display:grid; grid-template-columns:repeat(3,1fr); gap:9px}
+/* auto-fit rather than a fixed three: the run-over card carries four stats
+   now, and four fixed columns are unreadable on a 320px phone. They sit in
+   one row where there is room and fall into pairs where there is not. */
+.stats{display:grid; grid-template-columns:repeat(auto-fit, minmax(68px, 1fr)); gap:9px}
 .stat{border:3px solid var(--ink); border-radius:8px; padding:9px 8px; text-align:center; background:var(--track)}
 .stat .k{font-size:9px; font-weight:800; letter-spacing:.13em; text-transform:uppercase; color:var(--dim)}
 .stat .v{font-family:"Bungee",system-ui,sans-serif; font-size:20px; line-height:1.15; font-variant-numeric:tabular-nums}
@@ -502,14 +516,19 @@ h2.hd.bad{color:var(--foe)}
      for, and it is what the mockup shows. */
   .uiart .pill .k{display:none}
   .pill{min-width:0}
-  #hud{gap:5px; padding-left:8px; padding-right:74px}
-  .pill{padding:4px 7px 3px; gap:4px}
+  /* Narrow: pause moves to right:64 and is 38 wide, so 102 is the floor. */
+  #hud{gap:5px; padding-left:8px; padding-right:106px}
+  .pill{padding:4px 6px 3px; gap:3px}
   .pill .k{font-size:7.5px; letter-spacing:.06em}
-  .pill .v{font-size:14px}
-  .uiart .pill{border-width:8px 6px 9px 6px; padding:1px 1px}
-  .uiart .pill .ic{width:15px; height:15px; margin-right:1px}
+  .pill .v{font-size:13px}
+  .uiart .pill{border-width:8px 5px 9px 5px; padding:1px 0}
+  .uiart .pill .ic{width:14px; height:14px; margin-right:0}
   .uiart #btnMute{width:46px; height:24px}
-  .uiart #btnPause{right:64px}
+  /* .icon-btn is carried only to beat the later `.uiart #btnPause{right:76px}`
+     on specificity. Same specificity and further down the file, that rule was
+     winning and this one had never applied at any width -- which is why a
+     pill kept ending up under the pause button on a 360px phone. */
+  .uiart #btnPause.icon-btn{right:64px}
   .boosts span{font-size:8px; padding:2px 4px 1px}
 }
 
@@ -674,6 +693,7 @@ h2.hd.bad{color:var(--foe)}
 
 <div id="hud" hidden>
   <div class="pill" id="pCrowd"><i class="ic"></i><span class="k">Crew</span><span class="v" id="vCrowd">1</span></div>
+  <div class="pill" id="pTime"><i class="ic"></i><span class="k">Time</span><span class="v" id="vTime">0:00</span></div>
   <div class="pill" id="pDist"><i class="ic"></i><span class="k">m</span><span class="v" id="vDist">0</span></div>
   <div class="pill" id="pCoins"><i class="ic"></i><span class="k">Chips</span><span class="v" id="vCoins">0</span></div>
   <div class="pill" id="pFire"><i class="ic"></i><span class="k">Fire</span><span class="v" id="vFire">1.0</span></div>
@@ -692,6 +712,17 @@ h2.hd.bad{color:var(--foe)}
       <g id="mCross" hidden><path d="M15.4 9.6l6 4.8M21.4 9.6l-6 4.8"/></g>
     </svg>
   </button>
+</div>
+
+<div id="devKeyPanel" hidden>
+  <div class="pnHead"><h2>Dev room</h2></div>
+  <p id="devKeyMsg">The admin key, the same one the worker has.</p>
+  <input id="devKeyIn" type="password" autocomplete="off" spellcheck="false"
+         placeholder="admin key">
+  <div class="pnRow">
+    <button class="btn small" id="devKeyOk">OPEN</button>
+    <button class="btn small" id="devKeyNo">CANCEL</button>
+  </div>
 </div>
 
 <div id="namePanel" hidden>
@@ -750,13 +781,12 @@ h2.hd.bad{color:var(--foe)}
   <div class="devLb">
     <b>LEADERBOARD</b>
     <div class="lbtools">
-      <input id="dvKey" type="password" autocomplete="off" spellcheck="false"
-             placeholder="admin key">
       <button id="dvLoad">LOAD</button>
+      <button id="dvForget">FORGET KEY</button>
     </div>
     <div id="dvRows"></div>
-    <p class="dvmsg" id="dvMsg">The key is the one set as ADMIN_KEY on the
-       worker. It is kept on this phone only and never goes into your save.</p>
+    <p class="dvmsg" id="dvMsg">The key you opened this room with deletes rows
+       too. It is kept on this phone only and never goes into your save.</p>
   </div>
   <p class="devNote">Multipliers apply live. Crew at start needs a new run; the
      troop buttons land in the run you are already in, so they do nothing on
@@ -843,6 +873,7 @@ h2.hd.bad{color:var(--foe)}
     <h2 class="hd bad" id="overTitle">Run Over</h2>
     <p class="tag" id="overNote">The crew ran dry.</p>
     <div class="stats">
+      <div class="stat"><div class="k">Time</div><div class="v" id="oTime">0:00</div></div>
       <div class="stat"><div class="k">Distance</div><div class="v" id="oDist">0</div></div>
       <div class="stat"><div class="k">Best</div><div class="v" id="oBest">0</div></div>
       <div class="stat"><div class="k">Chips</div><div class="v gold" id="oCoins">0</div></div>
@@ -2394,16 +2425,26 @@ function spawnWall(z){
 
 // One enemy at a time, forever. The gap between them tightens as the run
 // goes on, so the stream thickens at the same time as it hardens.
-// Five times the old rate — the track should be crowded, not dotted.
 // The opening is thinned out and tightens fast: a King on his own, loosing
 // one arrow at a time, has to live long enough to reach his first gate and
 // earn a crew. Full density arrives by about twenty seconds.
-// The gap floor is a body count as much as a rate: at 38 spawns a second the
-// far half of the track compresses into a solid mass however fast they die.
-const spawnGapAt = t => clamp(0.124 - t*0.00048, 0.048, 0.124) * (1 + 5*Math.exp(-t/12));
+//
+// Thinned by about a fifth, because past a minute and a half the track was
+// not a stream any more, it was a wall. Measured on an ordinary mid run --
+// crew of forty, no damage buffs -- the old numbers ran 131 bodies alive at
+// 90s, 159 at 120s and 202 at 180s, which is the cap in all but name: from
+// there on every new spawn is just replacing one that died, and what you see
+// is a solid mass rather than something to read.
+//
+// The gap floor is a body count as much as a rate: the far half of the track
+// compresses into a solid mass however fast they die, so the floor is what
+// actually decides how packed the end of a long run looks.
+const spawnGapAt = t => clamp(0.140 - t*0.00044, 0.062, 0.140) * (1 + 5*Math.exp(-t/12));
 // A hard ceiling on live bodies. The design doc's original worry was cheap
-// phones, and this is the number that protects them.
-const ENEMY_CAP = 210;
+// phones, and this is the number that protects them -- and since a long run
+// sits ON this number rather than near it, it is also the single knob that
+// decides how crowded the late game looks.
+const ENEMY_CAP = 165;
 
 // ── The Grinder ────────────────────────────────────────────────
 // It does not kill you on contact and vanish. It takes hold, slows you to
@@ -2443,8 +2484,21 @@ function spawnEnemy(){
     // NOW and then holds it, which is dodgeable — you move and it misses —
     // while the rest fills the other lanes so the track is never one safe
     // corridor.
-    x: Math.random() < 0.70
-         ? clamp(G.leadX + (Math.random()*2-1)*1.3, -EDGE_X, EDGE_X)
+    // Aimed, but over a WIDER cone than it was. At 70% inside 1.3 units the
+    // stream stopped being aimed and became a plug: measured across 120
+    // samples, the eight columns of the road held 0/2/18/35/33/11/1/0 per
+    // cent of the bodies, so 86% of them were in the middle four and the
+    // outer lanes were bare tarmac. That is what makes a busy screen read as
+    // unplayable -- not the count, the fact that the count is stacked into
+    // one unreadable mass with nothing to thread.
+    //
+    // Still aimed, because it has to be: with a purely random spread a build
+    // that never touched the controls ran 711m against 286m, and a stream
+    // that ignores you is one you can idle through. 60% inside 1.9 units
+    // keeps the pressure on the lane you are in and puts the rest where you
+    // can see it coming.
+    x: Math.random() < 0.60
+         ? clamp(G.leadX + (Math.random()*2-1)*1.9, -EDGE_X, EDGE_X)
          : (Math.random()*2-1)*EDGE_X,
     z:G.dist + SPAWN_AHEAD + Math.random()*10,
     hp, hpMax:hp, tier,
@@ -3235,6 +3289,7 @@ function update(dt){
   G.flash = Math.max(0, G.flash - dt);
 
   hudCrowd.textContent = Math.floor(G.crowd);
+  vTime.textContent    = mmss(G.t);
   hudDist.textContent  = Math.floor(G.dist);
   hudCoins.textContent = G.chipsEarned;
   vFire.textContent    = G.fire.toFixed(1);
@@ -4422,7 +4477,16 @@ function renderIdle(t){
 
 // ── UI ─────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
+// How long this run has lasted, as a clock rather than a decimal. G.t is the
+// same number the difficulty curve reads, so the timer is not a decoration
+// bolted on beside the game -- it is the game's own clock made visible, and
+// it starts from zero with every run because G is rebuilt with it.
+const mmss = t => {
+  const s = Math.max(0, Math.floor(t));
+  return Math.floor(s/60) + ":" + String(s % 60).padStart(2, "0");
+};
 const hud = $("hud"), hudCrowd = $("vCrowd"), hudDist = $("vDist"), hudCoins = $("vCoins");
+const vTime = $("vTime");
 const vFire = $("vFire"), vSpeed = $("vSpeed"), boostBar = $("boostBar");
 let boostSig = "";
 const TIGHT_SLOTS = 4;            // badges the one-row bar shows before it folds
@@ -4586,6 +4650,7 @@ function endRun(why, won){
   $("overTitle").textContent = won ? "Inside the Keep" : record ? "New Best" : "Run Over";
   $("overTitle").className   = "hd" + (won || record ? "" : " bad");
   $("overNote").textContent  = why || "The crew ran dry.";
+  $("oTime").textContent  = mmss(G.t);
   $("oDist").textContent  = dist;
   $("oBest").textContent  = meta.best;
   $("oCoins").textContent = G.chipsEarned;
@@ -5172,14 +5237,114 @@ function frame(now){
     ehp:    { get:v => v/10,     fmt:v => "x"+(v/10).toFixed(1) },
     bhp:    { get:v => v/10,     fmt:v => "x"+(v/10).toFixed(1) }
   };
+  /* ── The door ────────────────────────────────────────────────
+     The dev room used to open to anybody who tapped the logo three times.
+     That was fine when it only had sliders in it, and it stopped being fine
+     the moment the room could hand out a million chips -- a levelled economy
+     that any player can opt out of is not a levelled economy. So the taps no
+     longer open the room; they ask for the key, and the key is the one the
+     worker holds, which means it is not in the file every player has a copy
+     of and cannot be read out of it.
+
+     The same key then deletes board rows, so it is typed once and not again.
+
+     What this is honestly worth: it stops the room being TAPPED open, which
+     is how a player would find it. It does not seal it -- anyone who opens a
+     console can unhide the panel, and no check written in a file the player
+     holds a copy of can stop them. What that buys them is chips in their own
+     save, which is the limit the board has always lived with. The one thing
+     genuinely enforced is the DELETE, and it is enforced where it can be: on
+     the worker, which holds the key and never hands it out.
+
+     It is checked against the worker rather than against anything here,
+     which has one consequence worth being deliberate about: with NO key set
+     on the worker there is nothing to check, and the room opens as it always
+     did. That is not a hole, it is the state the game is in today, and the
+     alternative -- locking the room until a key exists -- would lock the
+     owner out of the only place that explains how to set one. */
+  const KEYSTORE = KEY + ".adminkey";
+  // Worked out when it is ASKED for, not when this block is evaluated.
+  // BOARD_URL is declared further down the file than the dev room is, so
+  // reading it here at load time is a TDZ ReferenceError -- the same trap
+  // that had heal() quietly throwing away every returning player's save.
+  const adminUrl = () => {
+    try{ return String(BOARD_URL || "").replace(/\/board\b/, "/admin"); }
+    catch{ return ""; }
+  };
+  const heldKey = () => { try{ return localStorage.getItem(KEYSTORE) || ""; }catch{ return ""; } };
+  const holdKey = v => { try{
+    v ? localStorage.setItem(KEYSTORE, v) : localStorage.removeItem(KEYSTORE);
+  }catch{} };
+
+  // "ok" the key opens the room · "open" no key is set, so nothing to check
+  // · "bad" wrong key · "net" could not ask
+  // What the last check said about whether the worker has a key AT ALL.
+  // Kept because the leaderboard tools need to tell "you typed it wrong"
+  // apart from "there is no key to type", and those two look identical from
+  // a DELETE -- which is exactly the dead end this panel walked into: a 404
+  // reading "that is not the key the worker has" when in truth the worker
+  // had none.
+  let workerHasKey = null;                        // null unknown · true · false
+  async function askWorker(k){
+    const url = adminUrl();
+    if(!url) return "open";                       // no board at all: local game
+    try{
+      const res = await fetch(url, { headers: k ? { "X-Admin-Key": k } : {} });
+      if(res.status !== 200 && res.status !== 403) return "net";
+      const j = await res.json();
+      workerHasKey = j.configured !== false;
+      if(j.configured === false) return "open";
+      return j.ok ? "ok" : "bad";
+    }catch{ return "net"; }
+  }
+
   const unlocked = () => meta.devSeen || /(^|[#&?])dev\b/i.test(location.hash + location.search);
   function reveal(){ btn.hidden = !unlocked(); }
 
-  // Five taps on the logo. Counted with a rolling window so ordinary
-  // double-taps never creep up on it.
-  function unlock(){
+  function openRoom(){
     meta.devSeen = true; save();
     reveal(); paintDev(); panel.hidden = false;
+    $("devKeyPanel").hidden = true;
+  }
+
+  // Three taps on the logo, or the DEV button, both land here.
+  async function unlock(){
+    const kp = $("devKeyPanel"), msg = $("devKeyMsg"), inp = $("devKeyIn");
+    const held = heldKey();
+    if(held){
+      // Already trusted on this phone. Re-checked anyway, because the owner
+      // may have changed the key on the worker since.
+      const r = await askWorker(held);
+      if(r === "ok" || r === "open") return openRoom();
+      if(r === "net") return openRoom();          // offline, and already trusted
+      holdKey("");                                 // the key has changed
+    }else{
+      const r = await askWorker("");
+      if(r === "open") return openRoom();          // nothing set: as it ever was
+    }
+    inp.value = "";
+    msg.textContent = held
+      ? "That key no longer works. Type the new one."
+      : "The admin key, the same one the worker has.";
+    kp.hidden = false;
+    setTimeout(() => { try{ inp.focus(); }catch{} }, 30);
+  }
+
+  {
+    const kp = $("devKeyPanel"), msg = $("devKeyMsg"), inp = $("devKeyIn");
+    const tryKey = async () => {
+      const k = inp.value.trim();
+      if(!k){ msg.textContent = "Put the key in first."; return; }
+      msg.textContent = "Checking\u2026";
+      const r = await askWorker(k);
+      if(r === "ok" || r === "open"){ holdKey(k); openRoom(); return; }
+      msg.textContent = r === "net"
+        ? "Could not reach the board to check that."
+        : "That is not the key the worker has.";
+    };
+    $("devKeyOk").addEventListener("click", tryKey);
+    inp.addEventListener("keydown", e => { if(e.key === "Enter") tryKey(); });
+    $("devKeyNo").addEventListener("click", () => { kp.hidden = true; });
   }
   let taps = 0, tapT = 0, held = null;
   const logo = document.querySelector(".logo");
@@ -5280,16 +5445,13 @@ function frame(now){
      kept under its own localStorage key rather than in `meta`, so it never
      rides along in the save, the IndexedDB mirror, or anything the game
      ever writes out. */
-  const KEYSTORE = KEY + ".adminkey";
-  const keyIn = $("dvKey"), rowsEl = $("dvRows"), msgEl = $("dvMsg");
-  if(keyIn && rowsEl){
-    try{ keyIn.value = localStorage.getItem(KEYSTORE) || ""; }catch{}
+  const rowsEl = $("dvRows"), msgEl = $("dvMsg");
+  if(rowsEl){
     const say = t => { msgEl.textContent = t; };
-    const adminKey = () => {
-      const v = keyIn.value.trim();
-      try{ v ? localStorage.setItem(KEYSTORE, v) : localStorage.removeItem(KEYSTORE); }catch{}
-      return v;
-    };
+    // The key that opened this room. There is no second box to type it into:
+    // getting in and deleting a row are the same permission, so they are the
+    // same key, asked for once.
+    const adminKey = () => heldKey();
     let rows = [];
     const paintRows = () => {
       rowsEl.textContent = "";
@@ -5306,7 +5468,10 @@ function frame(now){
         del.addEventListener("click", async () => {
           if(!confirm("Delete " + r.n + " (" + (r.b|0) + "m) from the board?")) return;
           const k = adminKey();
-          if(!k) return say("Put the admin key in first.");
+          if(!k) return say(workerHasKey === false
+            ? "No ADMIN_KEY is set on the worker, so nothing can be deleted. "
+              + "Add one in the Cloudflare dashboard, then reopen this room."
+            : "No key held \u2014 close this and open the room again.");
           del.disabled = true;
           // Targeted by id when the row has one, so a name shared by two
           // rows cannot take the wrong one with it.
@@ -5315,7 +5480,7 @@ function frame(now){
           try{
             const res = await fetch(BOARD_URL + "?" + q,
               { method:"DELETE", headers:{ "X-Admin-Key": k } });
-            if(res.status === 404) return say("That key is not the one the worker has.");
+            if(res.status === 404) return say("The worker will not take that key any more.");
             if(!res.ok) return say("The worker said no (" + res.status + ").");
             const out = await res.json();
             rows = rows.filter(x => x !== r);
@@ -5329,6 +5494,12 @@ function frame(now){
       }
       if(!rows.length) say("Nothing on the board.");
     };
+    // A way back out, for a shared phone or a changed key.
+    $("dvForget").addEventListener("click", () => {
+      holdKey(""); meta.devSeen = false; save();
+      rows = []; paintRows();
+      panel.hidden = true; btn.hidden = true;
+    });
     $("dvLoad").addEventListener("click", async () => {
       say("Loading\u2026");
       try{
@@ -5338,7 +5509,10 @@ function frame(now){
         rows = Array.isArray(data) ? data.slice() : [];
         rows.sort((a, b) => (b.b | 0) - (a.b | 0));
         paintRows();
-        if(rows.length) say(rows.length + " rows. Delete needs the key.");
+        if(rows.length) say(workerHasKey === false
+          ? rows.length + " rows. No ADMIN_KEY is set on the worker yet, so "
+            + "DELETE will not work until you add one."
+          : rows.length + " rows. Tap DELETE on the ones to drop.");
       }catch{ say("Could not reach the board."); }
     });
   }
