@@ -3446,6 +3446,10 @@ function newRun(){
     raised:0,            // bodies Necromancy stood back up this frame
 
     boss:null, nextBossT:BOSS_FIRST, volley:[], splats:[], wineDone:false,
+    // exitDoor: the way out of the hall, once the wine king is down.
+    // onRug:    outside again, but the carpet came with you.
+    // boss2Up:  the second fight has been staged, so it is staged once.
+    exitDoor:null, onRug:false, boss2Up:false,
     cannons:0, cannonT:0, bombers:[], portalsWon:{}, townLaid:false,
     gatling:false,       // the Gatling Knight, if the machine handed one over
     propZ:-1e9, townR:-1e9, townL:-1e9,
@@ -3584,6 +3588,18 @@ const TOWN_FAR = 190, TOWN_FADE = 26;
 let CASTLE_AT = 30000;             // metres before the keep comes into play
 const CASTLE_RUNUP = 150;          // how far ahead of it the approach begins
 const CASTLE_STOP  = 6;            // how close the crew gets before it blocks
+/* ── Past the keep ──────────────────────────────────────────────
+   Killing the wine king used to BE the ending -- endRun(won). It is the end
+   of an act now. The hall carries on for a stretch, a way out appears at the
+   end of it, and the carpet runs out through the door and keeps going across
+   open country to a second fight at sixty thousand.
+
+   The run never stops moving through any of it, for the same reason the
+   approach to the keep does not: G.dist is the score, the spawn cursor and
+   the scenery clock at once, so freezing it to stage a scene would freeze
+   all three. */
+const KEEP_OUT_DZ  = 240;          // hall left to run after him, before the door
+const BOSS2_AT     = 60000;        // where the second fight stands
 const GATE_SECONDS = 5;            // of sustained fire to break it
 const WALL_TOLL_K   = 1.35;        // per man who actually ran into the stone
 const WALL_TOLL_MIN = 0.25;        // never less than this much of the crew
@@ -3753,7 +3769,10 @@ function addProps(z){
     }
     return;
   }
-  if(!townArt()){                       // no town art: the old countryside
+  // Past the keep the terrace is gone for good. The town is the road UP to
+  // the castle; what is behind it is open country with a rug running through
+  // it, so the countryside branch below serves both cases.
+  if(!townArt() || G.onRug){            // no town art, or past the keep
     for(const side of [-1,1]){
       if(Math.random() < 0.35) continue;
       const roll = Math.random();
@@ -5309,6 +5328,53 @@ function update(dt){
       return endRun("The gate held. The crew piled up against it.");
     }
   }
+  // ── Out the back of the keep ─────────────────────────────────
+  // The mirror of the way in, and deliberately the same shape: run up to it,
+  // a burst, and the scene on the far side is a different world. The only
+  // difference is that this one is already open -- there is nothing to shoot
+  // down, you have just killed what was holding it shut.
+  if(G.exitDoor){
+    const d = G.exitDoor;
+    if(d.burst > 0){
+      d.burst -= dt;
+      if(d.burst <= 0){
+        G.exitDoor = null;
+        // Outside again -- but the carpet came with you, which is the whole
+        // reason onRug exists as its own flag rather than being read off
+        // inKeep. The hall is gone; the rug is not.
+        G.inKeep = false;
+        G.onRug  = true;
+        // Same reason the way IN clears these: leaving propZ two hundred
+        // units up a hall that no longer exists leaves the road bare until
+        // the run catches up with it.
+        G.props.length = 0;
+        G.propZ = G.dist;
+        G.gates.length = 0; G.walls.length = 0;
+        pop(0, G.dist + 40, "OUT OF THE KEEP", "#F0A81E", 1.9);
+        shake(10); sfxBoss();
+        return;
+      }
+    }else if(d.z - G.dist < CASTLE_STOP){
+      d.burst = 0.9;
+    }
+  }
+  // ── The second fight ─────────────────────────────────────────
+  // PLACEHOLDER. It is the wine king's own shape and his own art, staged a
+  // second time at sixty thousand with the health the arrival earns -- enough
+  // to have an ending to run at and to test the road that leads to it. What
+  // it is actually going to BE is still open.
+  if(G.onRug && !G.boss && !G.boss2Up && G.dist > BOSS2_AT){
+    const hp = bacchusHp();
+    G.boss2Up = true;
+    G.boss = { kind:"bacchus", z:G.dist + SPAWN_AHEAD + 12, x:G.leadX,
+               hp, hpMax:hp, locked:false, drainT:0, final:true,
+               title:"THE SECOND KING",
+               volleyT:VOLLEY_EVERY, sway:Math.random()*6.28, guard:true };
+    G.gates.length = 0; G.walls.length = 0;
+    pop(G.leadX, G.dist + 34, "THE SECOND KING", "#7A45C2", 1.9);
+    shake(14); sfxBoss(); musicSet("boss");
+    return;
+  }
   updateBombers(dt);
   updateSupport(dt);
   updateSpells(dt);
@@ -5468,12 +5534,27 @@ function update(dt){
       rubble(b.x, b.z, 40, "#8E1B14", 8);
       shake(20); G.flash = 0.3; G.flashCol = "#FFF9EE";
       sfxJackpot(true);
-      // The wine king IS the ending. Killing him is the win, and endRun already
-      // pays the 5,000 that a win is worth -- adding a purse here would have
-      // paid it twice.
+      // The wine king is the end of an ACT, not of the run. He stops holding
+      // the hall closed, the way out appears at the far end of it, and the
+      // road past the keep runs on to the second fight. endRun's 5,000 is
+      // paid by whatever finally finishes the run, not here.
+      // `final` is tested BEFORE `guard`, and that ordering is load-bearing:
+      // the second king carries guard too -- it is what clears the road for
+      // the length of a fight and what caps his drain -- so tested the other
+      // way round his death would run the wine king's branch and hang a
+      // second door in front of you instead of ending the run.
+      if(b.final){
+        G.kills++;
+        return endRun("You fought your way past the keep and finished it.", true);
+      }
       if(b.guard){
         G.wineDone = true; G.kills++;
-        return endRun("You took the keep and drank the Wine King's cellar.", true);
+        G.boss = null;
+        G.exitDoor = { z: G.dist + KEEP_OUT_DZ, burst:0 };
+        pop(G.leadX, G.dist + 30, "THE CELLAR IS YOURS", "#F0A81E", 1.8);
+        pop(0,       G.dist + 44, "THE WAY OUT",         "#7A45C2", 1.5);
+        musicSet("run");
+        return;
       }
       G.boss = null; G.kills++;
       G.nextBossT = G.t + BOSS_EVERY;
@@ -6755,7 +6836,8 @@ function drawBossBar(b){
   ctx.font='13px "Bungee", system-ui, sans-serif';
   ctx.textAlign="center"; ctx.textBaseline="middle";
   ctx.lineWidth=3.5; ctx.strokeStyle="#171820";
-  const label = b.kind === "bacchus" ? "BACCHUS, THE WINE KING"
+  const label = b.title ? b.title
+              : b.kind === "bacchus" ? "BACCHUS, THE WINE KING"
               : b.locked ? "THE GRINDER — LOCKED ON" : "THE GRINDER";
   ctx.strokeText(label, W/2, y+h/2+1);
   ctx.fillStyle="#FFF9EE"; ctx.fillText(label, W/2, y+h/2+1);
@@ -7303,6 +7385,82 @@ function drawKeep(c){
   ctx.fillStyle = "#FFF9EE"; ctx.fillText("THE GATE", px, by - 0.12*s);
 }
 
+// ── The way out of the hall ──────────────────────────────────
+// This is NOT drawKeep. That paints the castle's OUTSIDE -- towers, roofs
+// and battlements against the sky -- which is right at the end of a street
+// and absurd at the end of a lit indoor hall: a second castle parked in the
+// throne room, measured at a gap of 50 units on the first build. What
+// belongs here is the inside of the same wall. Stone across the hall, an
+// arch cut through it, and daylight on the far side.
+const DOOR_WALL_X = 10.5;        // wall half-width: past the colonnade at 5.85
+const DOOR_X      = 4.3;         // the opening: a shade wider than the carpet
+const DOOR_SPRING = 3.0;         // where the jambs stop and the arch starts
+const DOOR_STONE  = "#A1937F";   // lit from inside, so paler than the vault
+const DOOR_STONE2 = "#8C7E6C";
+function drawHallDoor(d){
+  const s = scaleAt(d.z - G.dist);
+  if(s <= 0) return;
+  const gy = groundY(s);
+  // Up to the vault, so the wall meets the ceiling instead of standing in
+  // front of it with a strip of hall showing over the top.
+  const topY = gy - CEIL_H*s;
+  const ox0 = sxOf(-DOOR_X, s), ox1 = sxOf(DOOR_X, s);
+  const cx = (ox0 + ox1)/2, r = (ox1 - ox0)/2;
+  const spring = gy - DOOR_SPRING*s, arcTop = spring - r;
+  const arch = () => { ctx.moveTo(ox0, gy); ctx.lineTo(ox0, spring);
+                       ctx.arc(cx, spring, r, Math.PI, 0);
+                       ctx.lineTo(ox1, gy); ctx.closePath(); };
+
+  // Daylight, painted first: the wall is then filled with the arch as a hole
+  // in it, so what shows through the hole is this and not the hall behind.
+  const sky = ctx.createLinearGradient(0, arcTop, 0, gy);
+  sky.addColorStop(0, SKY_BASE); sky.addColorStop(0.55, "#D7CCB3");
+  sky.addColorStop(1, TEX_AVG.grassTex);
+  ctx.save();
+  ctx.beginPath(); arch(); ctx.clip();
+  ctx.fillStyle = sky; ctx.fillRect(ox0, arcTop, ox1-ox0, gy-arcTop);
+  // and the rug running out of it, narrowing because it is going away, and
+  // fading into the haze at its far edge rather than stopping on a hard line
+  // -- a flat red slab in the opening reads as a painted panel, not a floor.
+  const rug = ctx.createLinearGradient(0, gy - 1.6*s, 0, gy);
+  rug.addColorStop(0, "#A8705C"); rug.addColorStop(1, TEX_AVG.carpetTex);
+  ctx.fillStyle = rug;
+  ctx.beginPath();
+  ctx.moveTo(sxOf(-TRACK_HALF,s), gy);
+  ctx.lineTo(sxOf( TRACK_HALF,s), gy);
+  ctx.lineTo(cx + (sxOf(TRACK_HALF,s)-cx)*0.62, gy - 1.6*s);
+  ctx.lineTo(cx - (cx-sxOf(-TRACK_HALF,s))*0.62, gy - 1.6*s);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  // The wall, with the arch cut out of it. Even-odd rather than two panels
+  // and a lintel: the arch is one curve and splitting it into three pieces
+  // is three places for a seam to open up as the thing scales.
+  // Never narrower than the screen. The hall has no modelled side walls, so
+  // a wall drawn only as wide as the colonnade left a step in it either side
+  // with lit hall showing past the end of the building. The depth sort is
+  // what keeps this honest: anything NEARER than the door is drawn after it,
+  // so a full-width wall hides the hall beyond and nothing in front of it.
+  const wx0 = Math.min(0, sxOf(-DOOR_WALL_X,s)), wx1 = Math.max(W, sxOf(DOOR_WALL_X,s));
+  const wall = () => ctx.rect(wx0, topY, wx1 - wx0, gy - topY);
+  ctx.beginPath();
+  wall();
+  arch();
+  ctx.fillStyle = DOOR_STONE;
+  ctx.fill("evenodd");
+  // A course line across it, so the wall is masonry and not a flat slab.
+  ctx.save();
+  ctx.beginPath();
+  wall();
+  arch(); ctx.clip("evenodd");
+  ctx.fillStyle = DOOR_STONE2;
+  for(let u = 1.5; u < CEIL_H; u += 2.4) ctx.fillRect(0, gy - u*s, W, Math.max(1, 0.5*s));
+  ctx.restore();
+  // Gold round the opening, the same trim the carpet carries.
+  ctx.strokeStyle = HALL_GOLD; ctx.lineWidth = Math.max(2, 0.16*s);
+  ctx.beginPath(); arch(); ctx.stroke();
+}
+
 function drawProp(p){
   const s = scaleAt(p.z - G.dist);
   const px = sxOf(p.x,s), gy = groundY(s);
@@ -7519,7 +7677,11 @@ function drawTrack(dist){
   // none of them is drawn once the gate is behind you.
   const keepIn = !!(G && G.inKeep);
   const turfed = SIDE_GROUND && !keepIn && !!artImg("grassTex");
-  const carpet = keepIn && !!artImg("carpetTex");
+  // Outside, but still on the rug. Its own flag rather than a reading of
+  // inKeep, because the hall and the carpet stop being the same thing the
+  // moment you walk out through the door still standing on it.
+  const onRug  = !keepIn && !!(G && G.onRug);
+  const carpet = (keepIn || onRug) && !!artImg("carpetTex");
   const scene = keepIn ? null : artImg("bgField");
   // Sky outside; the far end of a lit hall inside.
   if(keepIn){
@@ -7529,7 +7691,11 @@ function drawTrack(dist){
     // same way the castle sits on the horizon for the whole run outside.
     // Its dais is set a little below the floor line, which the ground fill
     // below paints over, so it stands ON the hall rather than above it.
-    const th = artImg("hallThrone");
+    // ...until the wine king is down and a way out opens at that same
+    // vanishing point. Two things cannot both be the end of the hall, and
+    // the throne is drawn tall enough to stand clear above the doorway's
+    // lintel, so left in it hangs over the arch in mid-air.
+    const th = G && G.exitDoor ? null : artImg("hallThrone");
     if(th){
       // The same size the castle is given at the end of the road outside
       // (H*0.135), because it is the same job: the thing the road runs
@@ -7629,8 +7795,13 @@ function drawTrack(dist){
   // cut its towers off at the knees. It cannot move any earlier either: the
   // ground is blitted over everything above it, so the hills have to follow the
   // ground and the castle has to follow the hills.
+  // ...and it is gone for good once you are out the back of it. onRug is the
+  // test rather than wineDone because what matters is being PAST the keep,
+  // not having killed what was in it: the backdrop is the keep ahead of you,
+  // and painting it on the horizon of the road leading away from it puts the
+  // building you just walked through back in front of you.
   const keep = artImg("castleGate") || artImg("castleFar");
-  if(keep && !keepIn && !(G && G.castle)){
+  if(keep && !keepIn && !(G && (G.castle || G.onRug))){
     const ch = H*0.135, cw = ch*(keep.naturalWidth/keep.naturalHeight);
     ctx.drawImage(keep, W/2 - cw/2, HORIZON - ch + 2, cw, ch);
   }
@@ -7643,8 +7814,11 @@ function drawTrack(dist){
   // a real street: the buildings and the pavement dressing either side.
   //
   // The hall keeps every bit of this, because the carpet IS the hall's road:
-  // the one path down the middle, with its own braid at the edge.
-  if(!keepIn) return;
+  // the one path down the middle, with its own braid at the edge -- and so
+  // does the road past the keep, which is the same rug carried outdoors.
+  // Without the art there is nothing to lay out there, and the bare quad
+  // would be a grey slab down the middle of the dirt.
+  if(!keepIn && !(onRug && carpet)) return;
   // ...but it ends AT the keep once the keep is in the world, or the far
   // spike of carpet carries on past the gatehouse and stands up in the air
   // behind it.
@@ -7656,7 +7830,7 @@ function drawTrack(dist){
   ctx.lineTo(sxOf( TRACK_HALF,sR), groundY(sR));
   ctx.lineTo(sxOf(-TRACK_HALF,sR), groundY(sR));
   ctx.closePath();
-  ctx.fillStyle = carpet ? TEX_AVG.carpetTex : HALL_FLOOR;
+  ctx.fillStyle = carpet ? TEX_AVG.carpetTex : HALL_FLOOR;   // outdoors, carpet is guaranteed above
   ctx.fill();
   if(carpet){
     ctx.save(); ctx.clip();
@@ -7732,6 +7906,10 @@ function render(){
   for(const sp of G.spells) items.push({z: sp.z + (sp.tz-sp.z)*clamp(sp.t/sp.life,0,1),
                                       d:()=>drawSpell(sp)});
   if(G.castle && G.castle.z-G.dist < DRAW_Z+40) items.push({z:G.castle.z, d:()=>drawKeep(G.castle)});
+  // The way out. Its own piece of drawing, not the gatehouse -- see
+  // drawHallDoor for why the castle's outside cannot stand in a hall.
+  if(G.exitDoor && G.exitDoor.z-G.dist < DRAW_Z+40)
+    items.push({z:G.exitDoor.z, d:()=>drawHallDoor(G.exitDoor)});
   if(G.fox && G.fox.z-G.dist < DRAW_Z) items.push({z:G.fox.z, d:()=>drawFox(G.fox)});
   for(const c of G.chips) if(c.z-G.dist < DRAW_Z && c.z-G.dist > -CAM_BACK+2) items.push({z:c.z, d:()=>drawCoin(c)});
   for(const d of G.drops) if(d.z-G.dist < DRAW_Z && d.z-G.dist > -CAM_BACK+2) items.push({z:d.z, d:()=>drawDrop(d)});
@@ -7966,8 +8144,8 @@ function endRun(why, won){
   G.ended = true; G.endWhy = why || "";
   musicStop();
   const dist = Math.floor(G.dist);
-  // Taking the keep pays a bounty, because a run that ends in a win and a run
-  // that ends in a wall should not settle up the same way.
+  // Finishing pays a bounty, because a run that ends in a win and a run that
+  // ends in a wall should not settle up the same way.
   if(won) G.chipsEarned += 5000;
   const record = dist > meta.best;      // read before banking moves the mark
   meta.runs += 1;
@@ -7975,7 +8153,10 @@ function endRun(why, won){
   G.bankedDone = true;
   save();
   submitScore();     // no-op until BOARD_URL is set
-  $("overTitle").textContent = won ? "Inside the Keep" : record ? "New Best" : "Run Over";
+  // "Inside the Keep" was the right title while the wine king WAS the ending.
+  // The only win left is the one past the door, with both kings down, so the
+  // title says that instead of naming the room the run has long since left.
+  $("overTitle").textContent = won ? "Both Kings Down" : record ? "New Best" : "Run Over";
   $("overTitle").className   = "hd" + (won || record ? "" : " bad");
   $("overNote").textContent  = why || "The crew ran dry.";
   $("oTime").textContent  = mmss(G.t);
