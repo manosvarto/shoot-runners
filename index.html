@@ -1471,10 +1471,13 @@ h2.hd.bad{color:var(--foe)}
 <div id="cpPanel" hidden>
   <div class="pnHead"><h2>Checkpoint</h2>
     <button class="btn small ghost" id="cpClose">Close</button></div>
-  <p>Start a run from somewhere you have already beaten. You get back the
-     crew, fire and speed you had when you got there &mdash; your own best
-     arrival, not a handout. <b>A run from a checkpoint does not go on the
-     leaderboard and does not move your best.</b></p>
+  <p>Start a run from a boss you have already put down. You begin with the
+     <b>crew and the power-ups</b> listed below, fire 5 and speed 1.2, and
+     the first two gate rows are skipped so you have a moment to settle.
+     The power-ups are rolled fresh each time off the same table the gates
+     roll from.
+     <b>A run from a checkpoint does not go on the leaderboard and does not
+     move your best.</b></p>
   <div id="cpRows"></div>
 </div>
 
@@ -2783,7 +2786,61 @@ const CANNON_Z    = 0.42;
 // spread evenly across it. Spread evenly, the middle gun stands exactly where
 // the King does and he ends up inside it; with a gap he stands between his
 // guns, which is also what a King would do.
-const CANNON_GAP  = 0.58;      // half the clear space kept for the King
+// ── Keeping the hero's column clear ──────────────────────────
+// Everything that stands WITH the crew -- the gun line, the support line,
+// the Gatling pair -- was laid out from the middle of the road outward, and
+// the middle of the road is where the King walks. Measured off the sheets
+// he is drawn 2.53 units wide with the cape and the Queen 1.91, so a gun
+// kept clear at 0.58 and a knight at 0.9 were both standing INSIDE him. The
+// guns are painted before he is and disappeared behind the cape; the
+// support line is painted after and stood on it. Same bug, opposite
+// symptom, one answer: measure the hero, lay everything else outside him.
+//
+// The width is read off the art rather than written down beside it, because
+// a number copied out of a sprite is a number that goes stale the next time
+// the sprite is recut -- which is how the 0.58 came to be wrong in the
+// first place. A sheet still decoding falls back to square, within 2% of
+// the King.
+function artW(keys, hUnits){
+  for(const k of keys){
+    const im = k && artImg(k);
+    if(im) return hUnits*(im.naturalWidth/im.naturalHeight);
+  }
+  return hUnits;
+}
+const heroW = () => artW([walkKey(hero().key, 0), hero().key],
+                         RANK_H[1]*2*hero().scale);
+// Where a thing of world width w, standing at depth z, has to be to clear
+// him ON SCREEN. Both the position and the size of everything scale with
+// scaleAt, so the depth difference comes out as one ratio: a gun standing
+// further up the road has to be a little wider out than its own width
+// suggests, a knight standing nearer the camera a little less.
+const CLEAR_PAD = 0.06;        // a hair of daylight, so nothing merely touches
+function clearX(z, w){
+  const s0 = scaleAt(0), sz = scaleAt(z);
+  if(sz <= 0) return heroW()*0.5 + w*0.5 + CLEAR_PAD;
+  // The drift. He and the line stand at different depths, so the moment he
+  // is off the middle of the road their screen positions pull apart: the
+  // nearer row's x is multiplied by the bigger scale, and an offset that
+  // cleared him in the middle of the road has him three pixels inside the
+  // tank by the time he is at the kerb. Measured at the worst of the two
+  // sides rather than signed, so the line stays symmetrical about him.
+  const drift = Math.abs(G ? G.leadX : 0) * Math.abs(s0 - sz)/sz;
+  return drift + heroW()*0.5*(s0/sz) + w*0.5 + CLEAR_PAD;
+}
+// ...and a figure whose own side has run out of road goes to the OTHER side
+// rather than being clamped back onto him. Steer to the kerb and the whole
+// outboard half of a line laid around the hero is off the road: clamping it
+// stacks it against the edge, which at that point IS his column, and the
+// gap measured above is given straight back. It crosses over instead -- the
+// line gathers on whichever side there is road, which is also the only
+// place a line could stand.
+function placeBeside(mx, off, pad){
+  const lim = TRACK_HALF - pad;
+  if(Math.abs(mx + off) <= lim) return mx + off;
+  if(Math.abs(mx - off) <= lim) return mx - off;
+  return clamp(mx + off, -lim, lim);
+}
 const CANNON_STEP = 0.78;      // from one gun to the next along the line
 // Twelve guns in two and a half metres of road is a pile, not a battery, so
 // the line tops out at five and the rest fire from the ones you can see.
@@ -2794,11 +2851,12 @@ const CANNON_SHOWN = 5;
 // gun that is actually there.
 function gunSpots(n){
   const mx = clamp(G.leadX, -TRACK_HALF+0.2, TRACK_HALF-0.2);
+  const gap = clearX(CANNON_Z, artW(["cannonWalk0","cannon"], CANNON_H*UNIT_ART));
   const out = [];
   for(let i=0;i<n;i++){
     const side = (i % 2) ? 1 : -1, pair = Math.floor(i/2);
-    const off = side * (CANNON_GAP + pair*CANNON_STEP);
-    out.push(clamp(mx + off, -TRACK_HALF+0.12, TRACK_HALF-0.12));
+    const off = side * (gap + pair*CANNON_STEP);
+    out.push(placeBeside(mx, off, 0.12));
   }
   return out;
 }
@@ -2960,22 +3018,20 @@ function heal(raw){
   // prize already skip a key they do not recognise.
   m.pending = (Array.isArray(m.pending) ? m.pending : [])
                 .filter(k => typeof k === "string").slice(0, PENDING_MAX);
-  // The checkpoints reached, and what you were carrying when you reached
-  // them. Shape only, and primitives only: heal() runs at `let meta =
-  // load()`, which is a long way above most of this file, so a check that
-  // reached for CHECKPOINTS -- declared with the rest of the act, two
-  // thousand lines down -- would throw the TDZ ReferenceError that load()'s
-  // catch swallows and blank the save. The panel filters unknown keys.
+  // Which checkpoints are open. A FLAG now, where it used to be the crew
+  // and fire you arrived with -- saves written before the crew became a
+  // standard number carry that object, and any truthy value means the same
+  // thing it always did: you have beaten this one. Shape only, and
+  // primitives only: heal() runs at `let meta = load()`, a long way above
+  // most of this file, so a check that reached for CHECKPOINTS -- declared
+  // with the rest of the act, two thousand lines down -- would throw the TDZ
+  // ReferenceError that load()'s catch swallows and blank the save. Keys
+  // that are no longer checkpoints are left alone here and never shown: the
+  // panel renders CHECKPOINTS, not this.
   {
     const cp = (m.cp && typeof m.cp === "object") ? m.cp : {};
     const out = {};
-    for(const k in cp){
-      const v = cp[k];
-      if(!v || typeof v !== "object") continue;
-      out[k] = { crowd: Math.max(1, Math.min(1e7, v.crowd | 0)),
-                 fire:  Math.max(1, Math.min(9,   +v.fire || 1)),
-                 spd:   Math.max(1, Math.min(2,   +v.spd  || 1)) };
-    }
+    for(const k in cp) if(cp[k]) out[k] = 1;
     m.cp = out;
   }
   m.name = cleanName(m.name);
@@ -3695,7 +3751,9 @@ function newRun(){
     waves:[],
     // null on an ordinary run, the checkpoint's key on one that started
     // from somewhere else. Read by bankProgress and endRun.
-    fromCp:null
+    fromCp:null,
+    // Rows still to be skipped at the start of a checkpoint run.
+    cpGrace:0
   };
   syncMinions();
   spendRunPrizes();
@@ -3717,8 +3775,8 @@ function newRun(){
    the gentlest stream in the game in the hardest place on the road. */
 let startCp = null;
 function cpApply(k){
-  const c = cpOf(k), have = meta.cp[k];
-  if(!c || !have) return;
+  const c = cpOf(k);
+  if(!c || !meta.cp[k]) return;
   const z = c.at();
   G.fromCp = k;
   G.dist  = z;
@@ -3733,33 +3791,36 @@ function cpApply(k){
   // dev room's jumps use and what the road actually does.
   G.t = z/20;
   G.nextBossT = G.t + BOSS_FIRST;
-  // YOUR arrival, not an invented one.
-  G.crowd = Math.max(1, have.crowd | 0);
-  G.fire  = Math.max(G.fire, +have.fire || 1);
-  G.spd   = Math.max(G.spd,  +have.spd  || 1);
+  // The standard loadout, the same at either one and printed on the panel
+  // before you press it. Fire and speed are a floor, not a set: a player who
+  // walks in holding more from their own upgrades keeps it.
+  G.crowd = c.crew;
+  G.fire  = Math.max(G.fire, CP_FIRE);
+  G.spd   = Math.max(G.spd,  CP_SPD);
+  // The power-ups, rolled off the same weighted table the perk gates roll
+  // from and recorded the same way a gate records them, so a checkpoint
+  // start is a run that has already been playing rather than a different
+  // game with a different list. Rolled AFTER the crew is set, because
+  // VIGOUR pays a share of the crew it finds.
+  for(let i = 0; i < (c.perks || 0); i++){
+    const pk = pickPerk();
+    pk.apply(G);
+    G.perkN[pk.k] = (G.perkN[pk.k] || 0) + 1;
+    if(!G.perksWon.includes(pk.k)) G.perksWon.push(pk.k);
+  }
+  // A run-in before the road starts charging for mistakes. Counted down in
+  // spawnNext, which advances its cursor through it rather than skipping the
+  // call -- see the note there about what happens when the cursor is left
+  // behind.
+  G.cpGrace = CP_GRACE;
   syncMinions();
   // ...and the state of the world at that point, which is the whole of what
   // separates one checkpoint from another.
-  if(k === "gate"){
-    // Through the gate IS the fight: the wine king is spawned by the gate
-    // bursting, so a checkpoint that only set inKeep would drop you into an
-    // empty hall with nothing in it and no way to make him come.
-    G.inKeep = true;
-    for(const key of Object.keys(HALL_H)) artImg(key);
-    artImg("hallThrone"); artImg("carpetTex");
-    const hp = actBossHp();
-    G.boss = { kind:"bacchus", z:G.dist + SPAWN_AHEAD + 12, x:G.leadX,
-               hp, hpMax:hp, locked:false, drainT:0, stands:true,
-               volleyT:VOLLEY_EVERY, sway:Math.random()*6.28, guard:true };
-    musicSet("boss");
-  }else if(k === "cellar"){
+  if(k === "cellar"){
     G.inKeep = true; G.wineDone = true;
     G.exitDoor = { z: KEEP_EXIT_AT, burst:0 };
     for(const key of Object.keys(HALL_H)) artImg(key);
     artImg("carpetTex");
-  }else if(k === "out"){
-    G.pastKeep = true; G.wineDone = true;
-    artImg("bigTree");
   }else if(k === "tree"){
     G.pastKeep = true; G.wineDone = true; G.boss2Up = true;
     artImg("bigTree");
@@ -3768,6 +3829,7 @@ function cpApply(k){
   G.props.length = 0;
   for(let z2 = G.dist - 10; z2 < G.dist + DRAW_Z + 20; z2 += 5.5) addProps(z2);
   pop(0, G.dist + 30, c.name.toUpperCase(), "#F0A81E", 1.8);
+  if(c.perks) pop(0, G.dist + 22, c.perks + " POWER-UPS", "#A97BF2", 1.5);
 }
 
 // Everything the machine banked, handed over once and then gone. Spent here
@@ -3934,58 +3996,74 @@ const BIGTREE_H     = 26;          // world units tall: four times a forest tree
 // units as planted in the town; out here they are grown by FOREST_R so they
 // stand over the crew instead of beside it.
 /* ── Checkpoints ───────────────────────────────────────────────
-   A place on the road you have ALREADY got past, which you may start a run
-   from instead of running the whole thing again. Four of them, and each is
-   earned by doing the thing that place is: the gate is shot open, the
-   cellar is the wine king down, the way out is walked through, the tree is
-   the warden down. Reaching one is not enough -- you have to beat it.
+   A place on the road you have already got past, which you may start a run
+   from instead of running the whole thing again.
 
-   WHAT IS STORED IS YOUR OWN ARRIVAL, not a number this file invented. A
-   checkpoint at eighty thousand handed a one-man crew is not a checkpoint,
-   it is a death; and a checkpoint that hands out an army is a cheat button.
-   So the crew, fire and speed you actually had when you got there are kept
-   with it, and the strongest arrival wins -- play it better and the
-   checkpoint you start from gets better.
+   TWO OF THEM, AND BOTH ARE A BOSS. The gate and the door were checkpoints
+   for a while and they should not have been: shooting a gate open and
+   walking through a doorway are things you pass, not things you beat, and a
+   checkpoint that is handed out for walking is not a checkpoint. What is
+   left is the two kills -- the wine king, and the warden under the tree.
 
-   A RUN FROM A CHECKPOINT DOES NOT TOUCH THE BOARD. It starts with eighty
-   thousand metres already on the clock, and posting that next to runs that
-   were run from nothing would wreck the one thing in this game that is
-   shared. It does not move your best either. See endRun and bankProgress.
+   A RUN FROM ONE DOES NOT TOUCH THE BOARD. It starts with eighty thousand
+   metres already on the clock, and posting that next to runs that were run
+   from nothing would wreck the one thing in this game that is shared. It
+   does not move your best either. See endRun and bankProgress.
 
    `at` is a function because CASTLE_AT is a `let` the dev room moves. */
 const CHECKPOINTS = [
-  { k:"gate",   name:"The Gate",
-    at: () => CASTLE_AT + 40,
-    note:"Shoot the keep's gate open and walk in." },
   { k:"cellar", name:"The Cellar",
     at: () => CASTLE_AT + 260,
+    crew: 1300, perks: 10,
     note:"Put the wine king down." },
-  { k:"out",    name:"Out of the Keep",
-    at: () => KEEP_EXIT_AT + 40,
-    note:"Walk out of the hall through the door at 50,000." },
   { k:"tree",   name:"The Great Tree",
     at: () => BIGTREE_AT + 120,
+    crew: 2600, perks: 15,
     note:"Put the warden under the tree down." },
 ];
+/* WHAT YOU START WITH.
+
+   It used to be your own arrival -- the crew you really had when you got
+   there, kept with the checkpoint. That is a nicer idea than it plays: the
+   number moved every time you reached the place again, so the same button
+   was a different difficulty on Tuesday than it was on Monday, and nothing
+   on the panel explained why. One number you can read off the panel before
+   you press it is worth more than a personal best you cannot predict.
+
+   A flat 5,000 and nothing else was the first answer to that, and it was
+   half of one: a crew of five thousand with a BARE PERK SHEET is a lot of
+   men who cannot shoot. Arrivals measured at these two places were 11,405
+   men at the cellar and 6,565 at the tree, and they arrive carrying a run's
+   worth of power-ups, which is most of where their firepower lives. So the
+   crew comes down and the sheet comes with it: 1,300 at the cellar and
+   double that at the tree, with ten and fifteen power-ups rolled off the
+   same weighted table the gates roll from.
+
+   Fire and speed are a floor for the same reason: arriving at eighty
+   thousand shooting once a second is not a start, it is a death with extra
+   steps.
+
+   Both numbers live in the table above, beside the place they belong to,
+   because they are the only thing that differs between the two buttons and
+   a constant here could only ever hold one of them. */
+const CP_FIRE = 5;               // of a maximum of 9
+const CP_SPD  = 1.2;             // of a maximum of 1.3
+// Rows skipped at the start of a checkpoint run. You arrive at full speed
+// in the middle of a game you were not playing a second ago, and the first
+// thing the road does is hand you a choice that costs crew to get wrong.
+// Two rows is a few seconds with a thumb on the screen before anything can
+// cost anything.
+const CP_GRACE = 2;
+
 const cpOf = k => CHECKPOINTS.find(c => c.k === k) || null;
-// Reached, and beaten. Called from the one place each thing actually
-// happens, so there is no way to bank a checkpoint by walking near it.
+// Beaten, not merely reached. Called from the one place each kill actually
+// happens, so there is no way to bank a checkpoint by walking past it.
 function cpReach(k){
-  if(!G || G.fromCp === k) return;        // the one you started on is not news
-  if(!cpOf(k)) return;
-  const was = meta.cp[k];
-  const now = { crowd: Math.max(1, Math.floor(G.crowd)),
-                fire:  +Math.min(9, G.fire).toFixed(2),
-                spd:   +Math.min(2, G.spd).toFixed(2) };
-  // The strongest arrival is the one worth keeping: this is the state the
-  // player will restart from, and a weak run should not overwrite a strong
-  // one just by being the most recent.
-  if(was && (was.crowd | 0) >= now.crowd) return;
-  const first = !was;
-  meta.cp[k] = now;
+  if(!G || !cpOf(k) || meta.cp[k]) return;
+  meta.cp[k] = 1;
   save();
-  if(first) pop(G.leadX, G.dist + 26, "CHECKPOINT \u2014 " + cpOf(k).name.toUpperCase(),
-                "#F0A81E", 1.7);
+  pop(G.leadX, G.dist + 26, "CHECKPOINT \u2014 " + cpOf(k).name.toUpperCase(),
+      "#F0A81E", 1.7);
 }
 
 const FOREST_TREES  = ["townTree1", "townTree2", "townTree3"];
@@ -4018,19 +4096,34 @@ const FOREST_HAZE_Z = 70;          // units: how far in the far-forest haze reac
 const GATE_SECONDS = 5;            // of sustained fire to break it
 const WALL_TOLL_K   = 1.35;        // per man who actually ran into the stone
 const WALL_TOLL_MIN = 0.25;        // never less than this much of the crew
-const WALL_TOLL_MAX = 0.75;        // and never so much that the run is over
+const WALL_TOLL_MAX = 1;           // up to and including all of them
 // NOT playerDps(). That number carries the 2.0x boss multiplier, which exists
 // because a BODY sits in the arrow stream for several frames and absorbs more
 // than the volley's nominal damage. A gate is a plane: it eats one arrow each
 // and the arrow is gone. Pricing it off the boss figure overstated what lands
 // by about a factor of three, and a crew of 260 could not break it inside the
 // whole run-up -- measured 345 delivered against 960 assumed.
-const castleDoorHp = () => {
+// A wall is the same kind of object as the door, so it is priced the same
+// way: in SECONDS OF YOUR OWN FIRE. The flat 30 + z*0.34 was a speed bump
+// at every stage that mattered -- measured against a wall laid at the draw
+// horizon and shot at the whole way in, the crew delivers 1,210 by 200m,
+// 12,955 by 10k and 15,618 by 20k, against a flat price of 99, 3,431 and
+// 6,831. Twelve seconds puts the price at roughly 1.6x to 1.9x what one
+// approach can deliver: a wall will not come down just because you held
+// the trigger, and after the arrow count caps at 30 the delivery plateaus
+// near 16k while the price keeps climbing to 32k. It is still breakable
+// with the boosts and the cannons behind you, which is the point -- hard,
+// not impossible. The honest answer to a wall is the wheel: it never
+// covers every lane, and now it takes the whole column if you let it.
+const planeHp = (seconds, floor) => {
   const st = G.st, crew = Math.floor(G.crowd);
   const k = clamp(Math.round((1 + Math.floor(crew/3)) * boostMul('arrows')), 1, 30);
   const rate = st.rate * boostMul('rate') * perkRate();
-  return Math.round(Math.max(600, k * rate * arrowDmg() * GATE_SECONDS));
+  return Math.round(Math.max(floor, k * rate * arrowDmg() * seconds));
 };
+const castleDoorHp = () => planeHp(GATE_SECONDS, 600);
+const WALL_SECONDS = 12;           // of sustained fire to break one
+const wallHp = () => planeHp(WALL_SECONDS, 300);
 const KERB_X      = TRACK_HALF + 0.55;  // where the stalls and lamps stand
 const BUILDING_DZ = 6.4;                // one frontage, in world units
 // How many frontages it takes to close one slot, and this is why the scale
@@ -4500,6 +4593,17 @@ function spawnNext(){
     G.nextZ = z + GAP_MIN + Math.random()*(GAP_MAX-GAP_MIN);
     return;
   }
+  // The run-in on a checkpoint start. You arrive at full speed in the middle
+  // of a game you were not playing a second ago, and a row is a choice that
+  // costs crew to get wrong -- so the first CP_GRACE of them are not laid.
+  // The cursor still ADVANCES, for the same reason the fight above advances
+  // it: skip the call instead and nextZ falls behind dist, and the frame the
+  // grace runs out spawns every row it skipped at once.
+  if(G.cpGrace > 0){
+    G.cpGrace--;
+    G.nextZ = z + GAP_MIN + Math.random()*(GAP_MAX-GAP_MIN);
+    return;
+  }
   // The run always opens with a gate. The old fixed cycle did this by accident
   // -- gate first, wall second, forever -- and rolling the kind lost it: a
   // wall came first in 85% of runs, and a wall in front of a crew of one is a
@@ -4714,7 +4818,7 @@ function spawnWall(z){
   const widthLanes = Math.random() < 0.3 ? 2 : 1;
   const a = -TRACK_HALF + i*laneW;
   const b = Math.min(TRACK_HALF, a + laneW*widthLanes);
-  const hp = Math.round(30 + z*0.34);
+  const hp = wallHp();
   G.walls.push({ z, xa:a+0.05, xb:b-0.05, hp, hpMax:hp, done:false });
 }
 
@@ -5234,17 +5338,36 @@ const MAGE_BOX  = 2.3;
 const TANK_DMG  = 26;
 const TANK_WALL = 60;
 // Two rows laid across the crew's own width, so the line grows and shrinks
-// with the army instead of sitting at a fixed span the crew has outgrown.
+// with the army instead of sitting at a fixed span the crew has outgrown --
+// and laid OUTWARD IN PAIRS from the column the hero walks in, the same way
+// the gun line is. Spread evenly across the middle, an odd row put one of
+// them exactly where he stands, and because this line is painted after he
+// is, the mage was drawn standing on the King's cape. The widest kind sets
+// the gap for the whole line, so a row stays even whoever is in it.
 function supportSpots(n){
   const form = Math.max(1, Math.min(formMen(), SLOTS.length));
   let halfW = 0.9;
   for(let i=0;i<form;i++) if(Math.abs(SLOTS[i].x) > halfW) halfW = Math.abs(SLOTS[i].x);
+  let wide = 0;
+  for(const k in SUPPORT_KINDS){
+    const K = SUPPORT_KINDS[k];
+    wide = Math.max(wide, artW([walkKey(K.art, 0), K.art],
+                               UNIT_R*3.4*UNIT_ART*(K.hMul || 1)));
+  }
   const out = [], perRow = Math.ceil(n / SUPPORT_ROWS);
   for(let i=0;i<n;i++){
     const r = Math.floor(i/perRow), k = i % perRow;
     const cnt = Math.min(perRow, n - r*perRow);
-    const t = cnt === 1 ? 0.5 : k/(cnt-1);
-    out.push({ x:(-halfW + t*2*halfW)*0.94, z:-(SUPPORT_DZ + r*ROW_DZ*1.15) });
+    const z = -(SUPPORT_DZ + r*ROW_DZ*1.15);
+    const gap = clearX(z, wide);
+    // The far end of the row: the crew's own width when the army is wide
+    // enough to have one, and always enough road past the gap for the line
+    // to spread along instead of stacking on its own first man.
+    const edge = Math.min(TRACK_HALF - 0.3, Math.max(halfW*0.94, gap + 1.2));
+    const perSide = Math.ceil(cnt/2);
+    const step = perSide > 1 ? (edge - gap)/(perSide - 1) : 0;
+    const side = (k % 2) ? 1 : -1;
+    out.push({ x: side*(gap + Math.floor(k/2)*step), z });
   }
   return out;
 }
@@ -5277,7 +5400,7 @@ function updateSupport(dt){
   const f = 1 - Math.exp(-dt*4.4);
   for(let i=0;i<S.length;i++){
     const u = S[i], sp = spots[i];
-    const tx = clamp(G.leadX + sp.x, -TRACK_HALF+0.22, TRACK_HALF-0.22);
+    const tx = placeBeside(G.leadX, sp.x, 0.22);
     u.x += (tx - u.x)*f;
     u.z += (sp.z - u.z)*f;
     if(u.cast > 0) u.cast = Math.max(0, u.cast - dt*2.2);
@@ -5846,7 +5969,6 @@ function update(dt){
         // frontages stop being spawned. Set here and nowhere else, so nothing
         // about the run up to the gate can change.
         G.inKeep = true;
-        cpReach("gate");
         // Clear the street AND the cursor that lays it. Leaving propZ where
         // it was parks it two hundred units up a road that no longer exists,
         // and the hall stays bare until the run catches up with it.
@@ -5888,7 +6010,6 @@ function update(dt){
         // horizon and no keep on it.
         G.inKeep   = false;
         G.pastKeep = true;
-        cpReach("out");
         // Same reason the way IN clears these: leaving propZ two hundred
         // units up a hall that no longer exists leaves the road bare until
         // the run catches up with it.
@@ -5986,6 +6107,37 @@ function update(dt){
   // is a boundary whenever the row has an even number of lanes -- and dead
   // centre is where he starts -- so a run that never touched the controls
   // collected two gates at every even row it crossed.
+  /* A GATE CAN TAKE THE LAST MAN. Every one of these used to floor at one --
+     `Math.max(1, ...)` -- so a crew of one walked through a minus five and
+     came out the other side with a crew of one. The decision a row asks you
+     to make had no worst case: the lane you picked could cost you everything
+     except the run.
+
+     It can now. A toll you cannot pay ends it, and a shield is what gets you
+     past one: the same shield that blocks a grape cluster and the warden's
+     slam, spent the same way, and it leaves you standing on your last man
+     rather than refunding the gate. That is deliberate. A shield that
+     absorbed the WHOLE toll would make every red lane free while you held
+     one, which is a different game; this one only ever buys you your life.
+
+     Returns true when the run is over, and every caller returns on it --
+     update() has a whole frame of shooting, spawning and collecting after
+     this, and none of it should happen on a run that has already ended. */
+  const gateToll = (next, why) => {
+    if(next >= 1){ G.crowd = Math.floor(next); return false; }
+    if(G.shields > 0){
+      if(!boostOn('shieldKeep')) G.shields--;
+      G.crowd = 1;
+      pop(G.leadX, G.dist + 3.4, "SHIELDED", "#2E6BD4", 1.5);
+      G.flash = Math.max(G.flash, 0.22); G.flashCol = "#2E6BD4";
+      shake(8); sfxCrash();
+      return false;
+    }
+    G.crowd = 0;
+    syncMinions();
+    endRun(why);
+    return true;
+  };
   const crossing = G.gates.filter(g => !g.done && g.z - G.dist <= frontZ);
   const winner = new Map();               // one per row, keyed by its z
   for(const g of crossing){
@@ -6009,10 +6161,26 @@ function update(dt){
     }else if(g.kind === "perk"){
       const pk = perkOf(g.perk);
       if(pk){
+        // A PERK YOU CANNOT PAY FOR IS NOT SOLD. It used to kill you, and
+        // that was the one death here that was a trap rather than a
+        // mistake: the price is struck when the gate SPAWNS, eight seconds
+        // up the road, and is deliberately never recomputed -- a price that
+        // moved while you steered at it would be the one thing a price must
+        // never do. So a crew that collapses on the way to a perk lane
+        // arrives at a price that was fair when it was set and is now more
+        // than everything you own. Measured: it ended a run at 34 metres.
+        //
+        // The red lanes still kill, which is the whole point of them. This
+        // is a shop, and a shop you cannot afford turns you away.
+        if(g.cost && Math.floor(G.crowd) - g.cost < 1){
+          pop(G.leadX, G.dist+2.5, "CAN'T PAY", "#D8453B", 1.35);
+          sfxBad(); shake(5);
+          continue;
+        }
         // The price comes off first, so a gate can never pay you with men
         // you were about to hand over.
         if(g.cost){
-          G.crowd = Math.max(1, Math.floor(G.crowd) - g.cost);
+          G.crowd = Math.floor(G.crowd) - g.cost;
           pop(G.leadX, G.dist+1.2, "\u2212" + g.cost + " MEN", "#D8453B", 1.2);
         }
         pk.apply(G, g.men);
@@ -6026,27 +6194,34 @@ function update(dt){
         shake(7); sfxJackpot(false); G.flash = Math.max(G.flash, 0.18); G.flashCol = pk.col;
       }
     }else if(g.kind === "toll"){
-      // Flat, fixed, floored at one man like everything else that takes men.
+      // Flat and fixed, and it can take the last man.
       const v = g.value | 0;
-      G.crowd = Math.max(1, Math.floor(G.crowd) + v);
       pop(G.leadX, G.dist+2.5, String(v), "#D8453B", 1.3);
       sfxBad(); shake(8); G.flash = Math.max(G.flash, 0.26); G.flashCol = "#D8453B";
+      if(gateToll(Math.floor(G.crowd) + v,
+                  "The toll took more men than you had.")) return;
     }else if(g.kind === "div"){
-      // Floor, and never below one. Everything else that takes men uses the
-      // same floor, and a gate that can end the run outright is a gate you
-      // would have to treat as a wall.
-      G.crowd = Math.max(1, Math.floor(Math.floor(G.crowd) / g.div));
+      // This one used to carry a note arguing the other way: that a gate
+      // which can end the run outright is a gate you would have to treat as
+      // a wall. That was the right call while NO gate could, and it is the
+      // wrong one now that they all can -- the halver being the single safe
+      // thing the warden throws was the odd one out, not the rule.
       pop(G.leadX, G.dist+2.5, "\u00F7"+g.div, "#D8453B", 1.3);
       sfxBad(); shake(8); G.flash = Math.max(G.flash, 0.26); G.flashCol = "#D8453B";
+      if(gateToll(Math.floor(Math.floor(G.crowd) / g.div),
+                  "The last of the crew was halved away.")) return;
     }else if(g.kind === "mul"){
       G.crowd = Math.max(0, Math.floor(G.crowd)*g.mul);
       pop(G.leadX, G.dist+2.5, "×"+g.mul, COLORS[meta.color].body, 1.3);
       sfxLaser(); shake(5);
     }else{
       const v = g.value;
-      G.crowd = Math.max(1, Math.floor(G.crowd)+v);
       pop(G.leadX, G.dist+2.5, (v>=0?"+":"")+v, v>=0 ? COLORS[meta.color].body : "#D8453B", v>=0?1.15:1);
       if(v >= 0){ sfxGood(); } else { sfxBad(); shake(6); G.flash=0.22; G.flashCol="#D8453B"; }
+      // The plus lanes cannot kill, so they go through the same door without
+      // ever opening it -- one path for every row rather than two.
+      if(gateToll(Math.floor(G.crowd) + v,
+                  "You walked the crew into a lane you could not pay.")) return;
     }
     syncMinions();
   }
@@ -6069,22 +6244,26 @@ function update(dt){
     // and never less than a quarter of the crew however lightly you caught
     // it. A wall is worth steering for now.
     //
-    // The ceiling is the part that took measuring. A wall two lanes wide is
-    // wider than the column, so EVERY man was in the box: at a crew of 700
-    // the toll came out 699 and the run was simply over, with no more
-    // warning than a lane change. A wall is an accident, not an execution --
-    // it takes a huge bite and leaves you something to run with.
+    // There is no ceiling any more. A wall two lanes wide is wider than the
+    // column, so every man can be in the box -- and if every man is in the
+    // box the run is over. Stone kills, the same as a red lane. What keeps
+    // that fair is the lane that is always open and the seconds you had to
+    // pick it: a wall is answered with the wheel, not with arrows.
     if(killed > 0)
       killed = Math.round(clamp(killed * WALL_TOLL_K,
                                 Math.floor(G.crowd) * WALL_TOLL_MIN,
                                 Math.floor(G.crowd) * WALL_TOLL_MAX));
-    killed = Math.min(Math.floor(G.crowd) - (hitsBox(G.leadX,w.xa,w.xb) ? 0 : 1),
-                      killed);
+    killed = Math.min(Math.floor(G.crowd), killed);
     if(killed > 0){
-      if(!dv().god) G.crowd = Math.max(1, Math.floor(G.crowd) - killed);
       pop(G.leadX, G.dist+2.5, "−"+killed, "#D8453B", 1.25);
       rubble((w.xa+w.xb)/2, w.z, 18, "#8A6A4B", 5.5);
       shake(15); G.flash=0.3; G.flashCol="#D8453B"; sfxCrash();
+      // Stone is allowed the last man, the same as a red lane. It goes
+      // through gateToll so a shield spends itself here too, and so the
+      // ending reads the same whichever of the two caught you.
+      if(!dv().god && gateToll(Math.floor(G.crowd) - killed,
+                               "The column ran headlong into the stone."))
+        return;
       syncMinions();
     }
   }
@@ -6278,11 +6457,14 @@ function update(dt){
     // Whoever actually threw it. The salvo is shared by both standers, so a
     // fixed line here told you Bacchus had buried you while the warden was
     // the thing on the screen -- measured, the first time the golem killed a
-    // test crew.
+    // test crew. Reading G.boss fixed that and left half of it: the last
+    // throw of a fight outlives the thrower, so a cinder that lands after
+    // the warden is down found G.boss null and went back to saying Bacchus.
+    // The item itself knows -- `hot` is set from the golem at the throw --
+    // and an item in the air is the only thing that still remembers.
     if(G.crowd < 1)
-      return endRun(G.boss && G.boss.kind === "golem"
-                    ? "The warden buried your crew under the tree."
-                    : "Bacchus buried your crew in grapes.");
+      return endRun(v.hot ? "The warden buried your crew under the tree."
+                          : "Bacchus buried your crew in grapes.");
   }
   G.volley = G.volley.filter(v => !v.done);
   for(const sp of G.splats) sp.t += dt;
@@ -6942,7 +7124,13 @@ function drawKing(){
 const GATLING_Z   = -1.7;   // z, so a body's length nearer the camera than
                             // the King at 0 -- level with him he reads as one
                             // more of the line rather than out in front of it
-const GATLING_OFF = 0.9;    // to the King's right, clear of him and of the guns
+// How far out the pair stand is no longer a number: 0.9 was inside the
+// King's cape, and the knights -- painted after him, and nearer than he is
+// -- stood on it. It is measured off the hero now, the way the gun line and
+// the support line are, and the knight is a broad sprite so his own width
+// carries him well out. The step past that is so the pair do not share a
+// shoulder with the innermost gun.
+const GATLING_STEP = 0.45;  // past his own clearance
 const GATLING_H   = 0.95;   // a shade under the King, and much broader
 // Two frames at once, cross-faded between them.
 //
@@ -6989,8 +7177,9 @@ function drawGatling(){
   // one flag, he is still won once, and nothing about his x5 rate or x2
   // damage is counted twice.
   const H = GATLING_H*UNIT_ART, gy = groundY(s);
+  const off = clearX(GATLING_Z, artW(["gatlingWalk0","gatling"], H)) + GATLING_STEP;
   for(const side of [1, -1]){
-    const x = clamp(G.leadX + GATLING_OFF*side, -TRACK_HALF+0.2, TRACK_HALF-0.2);
+    const x = placeBeside(G.leadX, off*side, 0.2);
     // On the King's own leg clock, with no phase of their own: the three of
     // them march together, which is what an honour guard looks like.
     if(!drawBlendedUnit("gatling", G.legT, sxOf(x, s), gy, s, H, side < 0))
@@ -9028,13 +9217,14 @@ function paintCp(){
     const n = document.createElement("i");
     // Locked rows say what unlocks them. A greyed row with no reason on it
     // is the player asking the same question every time they open this.
-    n.textContent = have ? Math.floor(c.at()).toLocaleString() + " m"
+    n.textContent = have ? Math.floor(c.at()).toLocaleString() + " m \u00b7 "
+                             + c.perks + " power-ups"
                          : "Locked \u2014 " + c.note;
     left.appendChild(t); left.appendChild(n);
     const v = document.createElement("span");
     v.className = "v";
     if(have){
-      v.textContent = (have.crowd | 0).toLocaleString();
+      v.textContent = c.crew.toLocaleString();
       const s2 = document.createElement("small");
       s2.textContent = "crew";
       v.appendChild(s2);
