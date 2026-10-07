@@ -226,21 +226,26 @@ export default {
       at = board.findIndex(e => e && sameName(e.n, n) && (!e.id || e.id === id));
     }
 
-    // A submission can raise somebody's score and never lower it, so a fresh
-    // install posting zeroes cannot wipe out the run they did last week. A
-    // RENAME is the exception that proves it: the score is unchanged, so the
-    // row still has to be rewritten to carry the new spelling.
+    // A submission can raise any of the three numbers and never lower one,
+    // so a fresh install posting zeroes cannot wipe out the run they did
+    // last week. Every number is merged the same way, and THAT is the fix
+    // to a board that looked frozen: this used to answer `kept` and write
+    // nothing at all the moment the new BEST failed to beat the stored one,
+    // so a player whose record stood had their kills and their run count
+    // stuck at whatever they were on the day they last went further. Only
+    // the one number that happened to be a record ever moved, which is not
+    // what any of the three columns say they are.
     if (at >= 0) {
       const cur = board[at];
       const renamed = !sameName(cur.n, n);
-      if ((cur.b | 0) >= row.b) {
-        if (!renamed && (cur.id || "") === (row.id || ""))
-          return reply({ ok: true, kept: true });
-        // Keep the better score, take the new name and the id.
-        row.b = cur.b | 0;
-        row.k = Math.max(row.k, cur.k | 0);
-        row.r = Math.max(row.r, cur.r | 0);
-      }
+      row.b = Math.max(row.b, cur.b | 0);
+      row.k = Math.max(row.k, cur.k | 0);
+      row.r = Math.max(row.r, cur.r | 0);
+      // Nothing new to say: don't spend a KV write on it. The board still
+      // goes back, so the player sees the live table either way.
+      if (!renamed && (cur.id || "") === (row.id || "") &&
+          (cur.b | 0) === row.b && (cur.k | 0) === row.k && (cur.r | 0) === row.r)
+        return reply({ ok: true, kept: true, board: board.slice(0, MAX_ROWS) });
       board[at] = row;
     } else {
       board.push(row);
@@ -250,7 +255,14 @@ export default {
     board.sort((a, b) => (b.b | 0) - (a.b | 0));
     board = board.slice(0, MAX_ROWS);
     await env.SCORES.put(BOARD_KEY, JSON.stringify(board));
+    // The board goes back with the receipt. KV is eventually consistent --
+    // a read landing in another colo can serve the version from before this
+    // write for up to a minute -- so a client that posts and then reads has
+    // a real chance of being shown the board it just changed, unchanged.
+    // The one copy that is certainly current is the one in the hand that
+    // just wrote it, so hand it over and save the caller a round trip.
     return reply({ ok: true,
-                   rank: board.findIndex(e => id ? e.id === id : e.n === n) + 1 });
+                   rank: board.findIndex(e => id ? e.id === id : e.n === n) + 1,
+                   board });
   },
 };
