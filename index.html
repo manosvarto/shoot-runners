@@ -1472,10 +1472,10 @@ h2.hd.bad{color:var(--foe)}
   <div class="pnHead"><h2>Checkpoint</h2>
     <button class="btn small ghost" id="cpClose">Close</button></div>
   <p>Start a run from a boss you have already put down. You begin with the
-     <b>crew and the power-ups</b> listed below, fire 5 and speed 1.2, and
-     the first two gate rows are skipped so you have a moment to settle.
-     The power-ups are rolled fresh each time off the same table the gates
-     roll from.
+     <b>crew, the power-ups and the boosts</b> listed below, fire 5 and
+     speed 1.2, and the first two gate rows are skipped so you have a moment
+     to settle. Both are rolled fresh each time off the same tables the road
+     rolls from; the power-ups last the run, the boosts burn off.
      <b>A run from a checkpoint does not go on the leaderboard and does not
      move your best.</b></p>
   <div id="cpRows"></div>
@@ -3808,6 +3808,27 @@ function cpApply(k){
     G.perkN[pk.k] = (G.perkN[pk.k] || 0) + 1;
     if(!G.perksWon.includes(pk.k)) G.perksWon.push(pk.k);
   }
+  // And an armful of boosts, which is the other thing a run arrives
+  // carrying. Measured over a stepped run with god on and the gates swept:
+  // the road hands out 135 boost drops on the way to the cellar and 320 on
+  // the way to the tree from ordinary kills alone (0.012 a kill, over
+  // 10,233 and 28,010 of them), and that is before the deserters -- one
+  // spawn in twenty is one, about 560 of them by the cellar, and every one
+  // you shoot drops a boost too. Nobody collects all of that: each drop has
+  // to be steered onto, while you are already steering for gates. Twenty
+  // and forty are roughly one in seven of the ordinary-kill offer, which is
+  // a haul a player could plausibly walk in with.
+  //
+  // The seconds ADD UP here, where a pickup takes the longer of the two.
+  // Twelve kinds and twenty rolls means most kinds come up once or twice,
+  // and under pickup rules the second roll would buy nothing -- "double at
+  // the tree" has to mean something. They still run down from the first
+  // frame, so this is a head start and not a gift.
+  for(let i = 0; i < (c.boosts || 0); i++){
+    const b = BOOSTS[(Math.random()*BOOSTS.length)|0];
+    G.boosts[b.k] = (G.boosts[b.k] || 0) + BOOST_MIN + Math.random()*(BOOST_MAX - BOOST_MIN);
+    if(b.onGrant) b.onGrant(G);
+  }
   // A run-in before the road starts charging for mistakes. Counted down in
   // spawnNext, which advances its cursor through it rather than skipping the
   // call -- see the note there about what happens when the cursor is left
@@ -3829,7 +3850,8 @@ function cpApply(k){
   G.props.length = 0;
   for(let z2 = G.dist - 10; z2 < G.dist + DRAW_Z + 20; z2 += 5.5) addProps(z2);
   pop(0, G.dist + 30, c.name.toUpperCase(), "#F0A81E", 1.8);
-  if(c.perks) pop(0, G.dist + 22, c.perks + " POWER-UPS", "#A97BF2", 1.5);
+  if(c.perks)  pop(0, G.dist + 22, c.perks + " POWER-UPS", "#A97BF2", 1.5);
+  if(c.boosts) pop(0, G.dist + 14, c.boosts + " BOOSTS", "#E0761C", 1.5);
 }
 
 // Everything the machine banked, handed over once and then gone. Spent here
@@ -4014,11 +4036,11 @@ const BIGTREE_H     = 26;          // world units tall: four times a forest tree
 const CHECKPOINTS = [
   { k:"cellar", name:"The Cellar",
     at: () => CASTLE_AT + 260,
-    crew: 1300, perks: 10,
+    crew: 1300, perks: 10, boosts: 20,
     note:"Put the wine king down." },
   { k:"tree",   name:"The Great Tree",
     at: () => BIGTREE_AT + 120,
-    crew: 2600, perks: 15,
+    crew: 2600, perks: 15, boosts: 40,
     note:"Put the warden under the tree down." },
 ];
 /* WHAT YOU START WITH.
@@ -9218,7 +9240,7 @@ function paintCp(){
     // Locked rows say what unlocks them. A greyed row with no reason on it
     // is the player asking the same question every time they open this.
     n.textContent = have ? Math.floor(c.at()).toLocaleString() + " m \u00b7 "
-                             + c.perks + " power-ups"
+                             + c.perks + " power-ups \u00b7 " + c.boosts + " boosts"
                          : "Locked \u2014 " + c.note;
     left.appendChild(t); left.appendChild(n);
     const v = document.createElement("span");
@@ -10446,24 +10468,41 @@ const BOARD_URL  = "https://shoot-runners.manosvarto-6a4.workers.dev/api/board";
 const SCORES_URL = "scores.json";
 let remoteRows = [], remoteAt = 0;
 
+// One shape of row, whichever end of the wire it arrived from.
+function takeRows(list){
+  if(!Array.isArray(list)) return false;
+  remoteRows = list.map(e => ({
+    n: cleanName(e && e.n), b: Math.max(0, (e && e.b) | 0),
+    k: Math.max(0, (e && e.k) | 0), r: Math.max(0, (e && e.r) | 0),
+    t: (e && e.t) | 0, remote: 1,
+  })).filter(e => e.n).slice(0, 200);
+  remoteAt = Date.now();
+  return true;
+}
+
 function fetchScores(){
   // Cache-busted, because a static host will happily serve yesterday's board.
   return fetch((BOARD_URL || SCORES_URL) + "?t=" + Date.now(), { cache: "no-store" })
     .then(r => r.ok ? r.json() : null)
-    .then(j => {
-      const list = Array.isArray(j) ? j : (j && Array.isArray(j.scores) ? j.scores : null);
-      if(!list) return false;
-      remoteRows = list.map(e => ({
-        n: cleanName(e && e.n), b: Math.max(0, (e && e.b) | 0),
-        k: Math.max(0, (e && e.k) | 0), r: Math.max(0, (e && e.r) | 0),
-        t: (e && e.t) | 0, remote: 1,
-      })).filter(e => e.n).slice(0, 200);
-      remoteAt = Date.now();
-      return true;
-    })
+    .then(j => takeRows(Array.isArray(j) ? j
+                        : (j && Array.isArray(j.scores) ? j.scores : null)))
     .catch(() => false);
 }
 
+/* Posting, and the board that comes back with the receipt.
+
+   The store behind the endpoint is eventually consistent: a read can be
+   served the version from before the write that just happened, for up to a
+   minute, and the panel posts and then reads. So the read could hand back
+   the board as it was BEFORE the post it was waiting on -- which is the
+   board you just changed, drawn unchanged, which is what "it is stuck"
+   looks like from the sofa.
+
+   The endpoint now answers a POST with the board it wrote, and that copy
+   cannot be out of date: it is the one the write just made. Take it, and
+   the read is not needed at all. An endpoint that has not been redeployed
+   yet simply does not include one, and the caller falls back to reading. */
+const SUBMIT_GOT_BOARD = "board";
 function submitScore(){
   if(!BOARD_URL || !meta.name) return Promise.resolve(false);
   return fetch(BOARD_URL, {
@@ -10473,7 +10512,9 @@ function submitScore(){
     body: JSON.stringify({ n: meta.name, b: meta.best | 0, k: meta.kills | 0,
                            r: meta.runs | 0, id: meta.uid,
                            was: (meta.wasNamed || []).slice() }),
-  }).then(r => r.ok).catch(() => false);
+  }).then(r => r.ok ? r.json().catch(() => ({ ok: true })) : null)
+    .then(j => j ? (takeRows(j.board) ? SUBMIT_GOT_BOARD : true) : false)
+    .catch(() => false);
 }
 
 let openBoard = () => {};
@@ -10593,9 +10634,11 @@ function askName(first){
     // while the network makes up its mind; the fetch repaints it after.
     paintBoard(); sayFrom();
     panel.hidden = false;
-    // Post before reading, so the run just finished is in the table the read
-    // comes back with instead of it arriving one board behind.
-    submitScore().then(() => fetchScores())
+    // Post before reading, so the run just finished is in the table instead
+    // of arriving one board behind -- and when the post hands the board
+    // back, skip the read entirely rather than risk being served the older
+    // copy the store may still be handing out. See submitScore.
+    submitScore().then(r => r === SUBMIT_GOT_BOARD ? true : fetchScores())
                  .then(ok => { if(ok){ paintBoard(); sayFrom(); } });
   };
   $("btnBoard").addEventListener("click", openBoard);
