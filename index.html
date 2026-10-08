@@ -1476,8 +1476,8 @@ h2.hd.bad{color:var(--foe)}
      speed 1.2, and the first two gate rows are skipped so you have a moment
      to settle. Both are rolled fresh each time off the same tables the road
      rolls from; the power-ups last the run, the boosts burn off.
-     <b>A run from a checkpoint does not go on the leaderboard and does not
-     move your best.</b></p>
+     <b>A run from a checkpoint counts on the leaderboard and can move your
+     best, the same as any other run.</b></p>
   <div id="cpRows"></div>
 </div>
 
@@ -3750,7 +3750,9 @@ function newRun(){
     // the only thing that crosses the road rather than standing on it.
     waves:[],
     // null on an ordinary run, the checkpoint's key on one that started
-    // from somewhere else. Read by bankProgress and endRun.
+    // from somewhere else. Nothing reads it for SCORING any more -- every
+    // run counts -- it is kept because it is the only record of where a
+    // run began.
     fromCp:null,
     // Rows still to be skipped at the start of a checkpoint run.
     cpGrace:0
@@ -4027,10 +4029,14 @@ const BIGTREE_H     = 26;          // world units tall: four times a forest tree
    checkpoint that is handed out for walking is not a checkpoint. What is
    left is the two kills -- the wine king, and the warden under the tree.
 
-   A RUN FROM ONE DOES NOT TOUCH THE BOARD. It starts with eighty thousand
-   metres already on the clock, and posting that next to runs that were run
-   from nothing would wreck the one thing in this game that is shared. It
-   does not move your best either. See endRun and bankProgress.
+   A RUN FROM ONE COUNTS LIKE ANY OTHER. It did not, for a while, and the
+   argument against is still worth writing down: a tree run starts with
+   eighty thousand metres already on the clock, so it posts most of that
+   for walking one step, and the board is the one thing here that is
+   shared. The owner weighed that and chose it anyway -- a run is a run,
+   the number on the clock is the number -- so the top of the board is
+   checkpoint runs now. See endRun and bankProgress, where there is no
+   longer anything to see.
 
    `at` is a function because CASTLE_AT is a `let` the dev room moves. */
 const CHECKPOINTS = [
@@ -9278,10 +9284,13 @@ function bankProgress(){
   const d = Math.floor(G.dist);
   if(c > 0){ meta.chips += c; G.bankedChips = Math.floor(G.chipsEarned); changed = true; }
   if(k > 0){ meta.kills += k; G.bankedKills = G.kills;                   changed = true; }
-  // NOT FROM A CHECKPOINT. A run that began at eighty thousand would post
-  // eighty thousand for walking one metre, and `best` is what the board is
-  // built on. Coins and kills are still banked -- those were earned.
-  if(d > meta.best && !G.fromCp){ meta.best = d; changed = true; }
+  // Every run counts, including one started from a checkpoint. That was
+  // not always so: a checkpoint run was kept off `best` and off the board
+  // because it begins at thirty or eighty thousand metres and would post
+  // most of that for walking one step. The owner weighed that and decided
+  // a run is a run -- so the distance on the clock is the distance that
+  // counts, and the top of the board will be checkpoint runs.
+  if(d > meta.best){ meta.best = d; changed = true; }
   return changed;
 }
 
@@ -9300,10 +9309,7 @@ function endRun(why, won){
   bankProgress();
   G.bankedDone = true;
   save();
-  // A checkpoint run never reaches the board. Its distance is mostly the
-  // distance it was handed, and the board is the one thing in this game
-  // that is shared with other people.
-  if(!G.fromCp) submitScore();     // no-op until BOARD_URL is set
+  submitScore();                   // no-op until BOARD_URL is set
   // "Inside the Keep" was the right title while the wine king WAS the ending.
   // The only win left is the one past the door, with both kings down, so the
   // title says that instead of naming the room the run has long since left.
