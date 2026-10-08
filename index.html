@@ -10720,6 +10720,44 @@ restoreFromMirror();
 setTimeout(() => { if(!meta.name) askName(true); }, 240);
 fetchScores();
 
+/* ── Taking an update, on a phone that does not want one ───────
+   A static host serves this file with a cache header and nothing else,
+   and a phone -- an iPhone above all, once the game has been added to the
+   Home Screen -- will happily keep running last week's copy. Nothing in a
+   page can clear the cache it was itself served from, and nobody can
+   clear one on somebody else's phone from here. What a page CAN do is
+   notice, and come back for the new one.
+
+   version.json is forty bytes and is fetched with the cache turned off, so
+   the answer comes from the server every time. If the build it names is
+   not the build running, the page reloads itself at an address the cache
+   has never seen -- ?b=<build> -- which forces a fresh fetch of the HTML.
+
+   The guard against a reload loop is that same address: after one reload
+   the query already says the build being asked for, so a host that is
+   still serving the old file costs one reload and then stops. No storage
+   is involved, which matters because a private tab has none.
+
+   Silent where there is nothing to check: opened from a file, or a build
+   with no version.json beside it. KEEP THE TWO IN STEP -- tools/stamp.py
+   writes version.json from the constant below, and the public push is
+   what carries both. */
+const BUILD = "2026-10-08a";
+(function updateCheck(){
+  if(location.protocol === "file:") return;
+  fetch("version.json?t=" + Date.now(), { cache: "no-store" })
+    .then(r => r.ok ? r.json() : null)
+    .then(j => {
+      const want = j && String(j.build || "");
+      if(!want || want === BUILD) return;
+      let had = "";
+      try{ had = new URL(location.href).searchParams.get("b") || ""; }catch{}
+      if(had === want) return;                 // already came back for this one
+      location.replace(location.pathname + "?b=" + encodeURIComponent(want));
+    })
+    .catch(() => {});
+})();
+
 {
   const note = $("saveNote");
   // Say plainly whether the save is going to survive, rather than letting a
