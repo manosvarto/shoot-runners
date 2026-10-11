@@ -56,25 +56,32 @@ const num = v => Math.min(9_999_999, Math.max(0, v | 0));
 const cleanId = v => /^[a-z0-9]{8,32}$/.test(String(v || "")) ? String(v) : "";
 const sameName = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
-// One row per name, and the best score is the one that stays.
+// One row per PLAYER, and the best score is the one that stays.
+//
+// A player is an id. It was a NAME for a while, and that was wrong in the
+// way that matters most: two people who pick the same name are two people.
+// Measured against the live board -- Manos had 30,000 and Alket renamed
+// himself Manos; this function saw two rows called manos, kept the better
+// one and threw the other away, so one of them simply vanished and the
+// other appeared to have taken his score. Nobody can take anybody's row by
+// typing their name now.
 //
 // Swept on every read and every write, so a duplicate does not need anybody
-// to come back and post before it goes -- opening the board is enough.
+// to come back and post before it goes -- opening the board is enough. What
+// it sweeps is only ever ONE id filed twice, which a row written before ids
+// existed can still cause.
 //
 // The loser is not simply dropped. Its kills and runs are the same player's
 // too, so the survivor takes the best of them; deleting the row outright
 // would quietly lower a number that was honestly earned.
-//
-// The cost, stated plainly: two DIFFERENT players who pick the same name now
-// get one row between them, and the lower of the two disappears. Keying by
-// id had given them a row each. This is the trade the owner asked for, and
-// on a board where everyone knows everyone a repeated name is far more
-// likely to be one person twice than two people once.
 function dedupe(board) {
   const best = new Map();
   for (const r of board) {
     if (!r || !r.n) continue;
-    const k = String(r.n).toLowerCase();
+    // An id is who you are. A row from before ids falls back to its name,
+    // which is the only handle it has -- and it can only ever collide with
+    // another row that has no id either.
+    const k = r.id ? "#" + r.id : "@" + String(r.n).toLowerCase();
     const cur = best.get(k);
     if (!cur) { best.set(k, r); continue; }
     const keep = (r.b | 0) > (cur.b | 0) ? r : cur;
@@ -202,8 +209,12 @@ export default {
       for (const was of (Array.isArray(body.was) ? body.was : []).slice(0, 6)) {
         const w = cleanName(was);
         if (!w || sameName(w, n)) continue;
-        const i = board.findIndex(e => e && sameName(e.n, w) &&
-                                       (!e.id || e.id === id));
+        // ...and only a row THIS id owns. It used to take an id-less row of
+        // the right name as well, on the reasoning that an old row with your
+        // old name was yours. It is just as likely to be a different player
+        // who happens to be called that, and retiring it took his score and
+        // left him with nothing.
+        const i = board.findIndex(e => e && sameName(e.n, w) && e.id === id);
         if (i < 0) continue;
         row.b = Math.max(row.b, board[i].b | 0);
         row.k = Math.max(row.k, board[i].k | 0);
@@ -216,14 +227,13 @@ export default {
     // is called. Found by id FIRST -- that is the whole point, because after
     // a rename the name no longer finds it.
     let at = id ? board.findIndex(e => e && e.id === id) : -1;
-    if (at < 0) {
-      // No row owned by this id yet. Fall back to the name, which is how
-      // every row written before ids existed is adopted: the first post
-      // carrying an id claims the row spelled the same way. A row already
-      // owned by a DIFFERENT id is not claimable -- two players sharing a
-      // name now get a row each, where the old board silently gave them one
-      // between them.
-      at = board.findIndex(e => e && sameName(e.n, n) && (!e.id || e.id === id));
+    // No fallback to the name when the post carries an id. Claiming a row
+    // because it is SPELLED like you is how one player walks off with
+    // another's score -- type the name, post once, and the row is yours.
+    // A save without an id is the only thing that can still match on a
+    // name, and only against a row that has no id either.
+    if (at < 0 && !id) {
+      at = board.findIndex(e => e && sameName(e.n, n) && !e.id);
     }
 
     // A submission can raise any of the three numbers and never lower one,
