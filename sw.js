@@ -13,7 +13,7 @@
  * update story for anyone who has installed the game. tools/stamp.py
  * copies the constant here from the page so the two cannot drift.
  */
-const BUILD = "2026-10-11a";
+const BUILD = "2026-10-11b";
 const CACHE = "shoutrunner-" + BUILD;
 // Everything the game needs to start. The page itself is the game; the
 // rest is what the home-screen icon is made of.
