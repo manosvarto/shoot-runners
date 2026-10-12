@@ -400,28 +400,46 @@ h1.logo{
   background:#8E2FCB; color:#FFF9EE; border:3px solid var(--ink); border-radius:8px;
   padding:6px 10px 4px; box-shadow:3px 3px 0 var(--ink);
 }
+/* The save code: a monospace block that is meant to be selected, not read. */
+.codebox{
+  width:100%; box-sizing:border-box; resize:none; margin:4px 0 8px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+  line-height:1.4; word-break:break-all; color:var(--ink);
+  background:rgba(0,0,0,.06); border:2px solid var(--ink); border-radius:8px;
+  padding:8px;
+}
+#keepPanel .btn{width:100%}
+.keepsep{border-top:2px dashed rgba(0,0,0,.18); padding-top:12px; margin-top:14px !important}
+.keepmsg{min-height:1em; font-weight:700}
 /* The install steps, where the phone will not let the page do it itself. */
 .getsteps{margin:10px 0 2px; padding-left:22px; display:grid; gap:7px}
 .getsteps li{line-height:1.35}
 #getDo .btn{width:100%; margin-top:4px}
-.saverow{display:flex; align-items:center; gap:9px; margin:2px 0 10px}
+/* Four buttons do not fit a phone on one line, and this row only ever had
+   two when it was written. It wraps now and the note takes the whole of
+   whatever line it lands on, so nothing is pushed off the right edge --
+   measured at 360 and 430, with Install showing, which is the case an
+   iPhone sees. */
+.saverow{display:flex; flex-wrap:wrap; align-items:center; gap:9px; margin:2px 0 10px}
+.saverow .savenote{flex-basis:100%}
 .savenote{font-size:11px; color:var(--dim); line-height:1.3}
+.savenote.tap{color:var(--gold); text-decoration:underline; cursor:pointer}
 /* The board and the name prompt are the menu card, not the dev room: bone,
    four-pixel ink, a hard offset shadow and Bungee on the headings. */
-#namePanel, #lbPanel, #cpPanel, #getPanel, #winPanel, #pausePanel, #powerPanel, #devKeyPanel{
+#namePanel, #lbPanel, #cpPanel, #getPanel, #keepPanel, #winPanel, #pausePanel, #powerPanel, #devKeyPanel{
   position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
   width:min(392px, calc(100vw - 26px)); max-height:min(82vh, 700px); overflow:auto;
   z-index:63; background:var(--bone); color:var(--ink);
   border:4px solid var(--ink); border-radius:12px; box-shadow:9px 9px 0 var(--ink);
   padding:18px 18px 20px;
 }
-#namePanel h2, #lbPanel h2, #cpPanel h2, #getPanel h2, #winPanel h2, #pausePanel h2,
+#namePanel h2, #lbPanel h2, #cpPanel h2, #getPanel h2, #keepPanel h2, #winPanel h2, #pausePanel h2,
 #powerPanel h2, #devKeyPanel h2{
   font-family:"Bungee",system-ui,sans-serif; font-size:19px; letter-spacing:.06em;
   margin:0; color:var(--ink);
 }
 .pnHead{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px}
-#namePanel p, #lbPanel p, #cpPanel p, #getPanel p, #winPanel p, #pausePanel p,
+#namePanel p, #lbPanel p, #cpPanel p, #getPanel p, #keepPanel p, #winPanel p, #pausePanel p,
 #powerPanel p, #devKeyPanel p{font-size:12px; line-height:1.55; color:var(--dim); margin:11px 0 7px}
 /* A checkpoint row is a board row that happens to be a button: same track
    fill, same ink, same hard shadow on the one that stands out -- which here
@@ -1498,6 +1516,24 @@ h2.hd.bad{color:var(--foe)}
   <div id="cpRows"></div>
 </div>
 
+<div id="keepPanel" hidden>
+  <div class="pnHead"><h2>Backup</h2>
+    <button class="btn small ghost" id="keepClose">Close</button></div>
+  <p>A browser can throw your save away &mdash; clearing website data does it,
+     and so does Safari on its own after a fortnight of not playing. This code
+     is the copy nobody can take: your coins, your upgrades, your best and
+     your name. <b>Copy it somewhere you keep things</b> &mdash; a note to
+     yourself, a message to a friend &mdash; and it will put everything back,
+     on this phone or any other.</p>
+  <textarea id="keepCode" class="codebox" readonly rows="3"></textarea>
+  <button class="btn small" id="keepCopy">Copy the code</button>
+  <p class="keepsep">Got a code? Paste it here to put that save back.</p>
+  <textarea id="keepIn" class="codebox" rows="3"
+            placeholder="paste a code"></textarea>
+  <button class="btn small ghost" id="keepLoad">Restore</button>
+  <p class="keepmsg" id="keepMsg"></p>
+</div>
+
 <div id="getPanel" hidden>
   <div class="pnHead"><h2>Install the game</h2>
     <button class="btn small ghost" id="getClose">Close</button></div>
@@ -1700,6 +1736,7 @@ h2.hd.bad{color:var(--foe)}
       <button class="btn small ghost" id="btnBoard">Leaderboard</button>
       <button class="btn small ghost" id="btnCp">Checkpoint</button>
       <button class="btn small ghost" id="btnGet" hidden>Install</button>
+      <button class="btn small ghost" id="btnKeep">Backup</button>
       <span class="savenote" id="saveNote"></span>
     </div>
     <div class="stats">
@@ -10784,7 +10821,7 @@ fetchScores();
    with no version.json beside it. KEEP THE TWO IN STEP -- tools/stamp.py
    writes version.json from the constant below, and the public push is
    what carries both. */
-const BUILD = "2026-10-11b";
+const BUILD = "2026-10-12a";
 (function updateCheck(){
   if(location.protocol === "file:") return;
   // A service worker, where there is one, owns updates: the browser
@@ -10821,6 +10858,105 @@ const BUILD = "2026-10-11b";
    Registration is allowed to fail and nothing is said about it. On the
    try builds there is no sw.js to register, and the game is the same
    game without one. */
+/* ── The save code ─────────────────────────────────────────────
+   The third of the three things written at the top of this file, and the
+   one that was never built: a copy of the save the player holds, which is
+   the only one that does not depend on the browser's goodwill. The other
+   two are asking nicely. This is the guarantee.
+
+   It is the save itself, as JSON, in base64, with a tag and a checksum
+   round it. Not encrypted and not meant to be: the point is that a player
+   can keep it in a note, paste it into a message to themselves, and read
+   it back on a phone that has never seen the game. A code is as forgeable
+   as the save it came from, which was already a file on their own phone.
+
+   The checksum is there for the honest failure -- a code pasted with half
+   of it missing, or with a newline eaten by a chat app. Without it a
+   truncated code parses into a save with holes in it, and heal() fills
+   the holes with zeroes: silently, exactly the loss it was pasted in to
+   undo. */
+const CODE_TAG = "SR1";
+const codeSum = str => {            // FNV-1a, 32 bits, enough to catch a tear
+  let h = 0x811c9dc5;
+  for(let i = 0; i < str.length; i++){
+    h ^= str.charCodeAt(i) & 0xff;
+    h = (h + ((h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24))) >>> 0;
+  }
+  return h.toString(36);
+};
+function makeCode(){
+  const json = JSON.stringify(meta);
+  // btoa only speaks bytes, and a name can be Greek.
+  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)))
+                .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return CODE_TAG + "." + b64 + "." + codeSum(json);
+}
+function readCode(code){
+  const parts = String(code || "").trim().replace(/\s+/g, "").split(".");
+  if(parts.length !== 3 || parts[0] !== CODE_TAG) return null;
+  let json;
+  try{
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(b64 + "===".slice((b64.length + 3) % 4));
+    json = new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
+  }catch{ return null; }
+  if(codeSum(json) !== parts[2]) return null;
+  try{ return heal(JSON.parse(json)); }catch{ return null; }
+}
+
+{
+  const panel = $("keepPanel"), out = $("keepCode"), inp = $("keepIn"),
+        msg = $("keepMsg"), load = $("keepLoad");
+  let armed = false;                       // Restore asks once before it acts
+  const disarm = () => { armed = false; load.textContent = "Restore"; };
+
+  $("btnKeep").addEventListener("click", () => {
+    out.value = makeCode();
+    inp.value = ""; msg.textContent = ""; disarm();
+    $("lbPanel").hidden = true; $("cpPanel").hidden = true; $("getPanel").hidden = true;
+    panel.hidden = false;
+  });
+  $("keepClose").addEventListener("click", () => { panel.hidden = true; });
+
+  $("keepCopy").addEventListener("click", async () => {
+    out.select(); out.setSelectionRange(0, out.value.length);
+    let ok = false;
+    try{ await navigator.clipboard.writeText(out.value); ok = true; }catch{}
+    // The clipboard API is refused in plenty of places; the selection above
+    // is the fallback, and saying so is better than a button that looks
+    // like it did nothing.
+    msg.textContent = ok ? "Copied. Keep it somewhere safe."
+                         : "Selected — press Copy on your keyboard.";
+    try{ localStorage.setItem(KEY + ".kept", "1"); }catch{}
+    const note = $("saveNote");
+    if(note.classList.contains("tap")){ note.textContent = ""; note.className = "savenote"; }
+  });
+
+  load.addEventListener("click", () => {
+    const m = readCode(inp.value);
+    if(!m){
+      msg.textContent = inp.value.trim()
+        ? "That code is not right — it may be cut short."
+        : "Paste a code first.";
+      disarm(); return;
+    }
+    if(!armed){
+      // Restoring throws away whatever is on this phone. Ask once.
+      armed = true;
+      load.textContent = "Yes — replace this save";
+      msg.textContent = "This replaces the save on this phone: "
+        + (m.name || "no name") + ", best " + (m.best | 0) + ".";
+      return;
+    }
+    meta = m;
+    if(!meta.dev) meta.dev = Object.assign({}, DEV_DEF);
+    save();
+    repaintMeta();
+    panel.hidden = true;
+    disarm();
+  });
+}
+
 /* ── The Install button ────────────────────────────────────────
    The game has been installable since it got a worker and a manifest, and
    nobody installed it, because the way in was a menu item three taps deep
@@ -10909,12 +11045,26 @@ if("serviceWorker" in navigator && location.protocol !== "file:"){
   // it is broken is how somebody loses a month of runs without warning.
   if(!storageWorks()){
     note.textContent = "Progress can’t be saved in this window — try leaving private browsing.";
-  }else if(navigator.storage && navigator.storage.persist){
+  }else{
     // Ask the browser to keep the save rather than evict it under pressure.
     // Chrome grants this on engagement, Safari once the page is on the home
     // screen. It is worth asking either way, and it is silent: nothing here
     // is worth a line of menu, which is why the answer is not reported.
-    navigator.storage.persist().catch(() => {});
+    if(navigator.storage && navigator.storage.persist)
+      navigator.storage.persist().catch(() => {});
+    // A code nobody copied is not a backup. Once there is something worth
+    // losing, the empty half of this line says so -- once, and never again
+    // after the code has been taken. Kept under its own key rather than in
+    // `meta`, because it is a fact about this PHONE and it must not travel
+    // inside a code and tell a new phone it has already been backed up.
+    const worth = (meta.best | 0) > 0 || (meta.chips | 0) > 0;
+    let kept = false;
+    try{ kept = !!localStorage.getItem(KEY + ".kept"); }catch{}
+    if(worth && !kept){
+      note.textContent = "Back up your progress →";
+      note.className = "savenote tap";
+      note.addEventListener("click", () => $("btnKeep").click());
+    }
   }
 
   // Write on the way out. pagehide is the one mobile browsers actually fire;
