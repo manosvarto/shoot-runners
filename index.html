@@ -10630,7 +10630,17 @@ function paintBoard(){
     const cur = by.get(k);
     if(!cur || r.me || (!cur.me && r.b > cur.b)) by.set(k, r);
   };
-  remoteRows.forEach(put);
+  // A row with no distance on it is not a score. Every player writes one
+  // the first time the board is opened -- the post goes out before they
+  // have run anywhere -- and it sits at the bottom for ever afterwards if
+  // they never come back. The server keeps them, because an empty row still
+  // holds that player's NAME against the day they do return; the board just
+  // does not draw them.
+  //
+  // Mine is the exception, and it is put in below rather than here: a player
+  // on their first visit should see themselves on the board they are about
+  // to be on.
+  remoteRows.forEach(r => { if((r.b | 0) > 0) put(r); });
   // Mine goes in last and under my own id, so the server's copy of me --
   // which may still be filed under the name I just left -- is dropped here
   // too, rather than waiting for the server to catch up.
@@ -10733,10 +10743,13 @@ function askName(first){
   const sayFrom = () => {
     // An empty shared file is not a shared board yet -- say so rather than
     // announcing "Everyone · 0 players".
+    // Counted the way the table is drawn, or the line claims players the
+    // list does not show.
+    const shown = remoteRows.filter(r => (r.b | 0) > 0).length;
     from.textContent = nameTaken
       ? "Somebody already has your name — tap Rename and pick another."
-      : (remoteAt && remoteRows.length)
-      ? "Everyone · " + remoteRows.length + " player" + (remoteRows.length === 1 ? "" : "s")
+      : (remoteAt && shown)
+      ? "Everyone · " + shown + " player" + (shown === 1 ? "" : "s")
       : "This phone only";
     from.classList.toggle("warn", nameTaken);
   };
