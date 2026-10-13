@@ -236,6 +236,24 @@ export default {
       at = board.findIndex(e => e && sameName(e.n, n) && !e.id);
     }
 
+    // A NAME BELONGS TO WHOEVER TOOK IT FIRST.
+    //
+    // Keying rows by id stopped a rename from stealing somebody's score,
+    // and left two players wearing the same name, which is its own mess on
+    // a board where the name is the only thing anyone reads. So a name that
+    // another row already holds cannot be taken: the post is refused and
+    // the player is told to pick another.
+    //
+    // Only a CHANGE is checked. A player whose row is already called this
+    // is not taking anything, which is what keeps the duplicates already on
+    // the board -- written before this rule existed -- posting their own
+    // scores instead of being locked out of their own name.
+    const cur = at >= 0 ? board[at] : null;
+    if (!cur || !sameName(cur.n, n)) {
+      const owner = board.find(e => e && e !== cur && sameName(e.n, n));
+      if (owner) return reply({ error: "That name is taken.", taken: true }, 409);
+    }
+
     // A submission can raise any of the three numbers and never lower one,
     // so a fresh install posting zeroes cannot wipe out the run they did
     // last week. Every number is merged the same way, and THAT is the fix

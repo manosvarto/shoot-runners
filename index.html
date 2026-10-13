@@ -521,6 +521,7 @@ h1.logo{
 .lbrow .v.dist{color:var(--chip); -webkit-text-stroke:.7px var(--ink)}
 .lbrow.me .v.dist{color:var(--ink); -webkit-text-stroke:0}
 .lbempty{color:var(--dim); padding:14px 4px; text-align:center}
+.lbfrom.warn{color:#D8453B; font-weight:800}
 .lbfrom{
   font-size:9px; font-weight:800; letter-spacing:.13em; text-transform:uppercase;
   color:var(--dim); margin:2px 0 8px; padding:0 9px;
@@ -10585,6 +10586,7 @@ function fetchScores(){
    the read is not needed at all. An endpoint that has not been redeployed
    yet simply does not include one, and the caller falls back to reading. */
 const SUBMIT_GOT_BOARD = "board";
+const SUBMIT_NAME_TAKEN = "taken";
 function submitScore(){
   if(!BOARD_URL || !meta.name) return Promise.resolve(false);
   return fetch(BOARD_URL, {
@@ -10594,8 +10596,15 @@ function submitScore(){
     body: JSON.stringify({ n: meta.name, b: meta.best | 0, k: meta.kills | 0,
                            r: meta.runs | 0, id: meta.uid,
                            was: (meta.wasNamed || []).slice() }),
-  }).then(r => r.ok ? r.json().catch(() => ({ ok: true })) : null)
-    .then(j => j ? (takeRows(j.board) ? SUBMIT_GOT_BOARD : true) : false)
+  }).then(r => r.json().catch(() => null).then(j => ({ ok: r.ok, j })))
+    .then(({ ok, j }) => {
+      // 409 is the board saying the name belongs to somebody else. It is the
+      // one failure worth repeating to the player, so it comes back named
+      // rather than as a plain false with every other kind of refusal.
+      if(!ok) return (j && j.taken) ? SUBMIT_NAME_TAKEN : false;
+      if(!j) return true;
+      return takeRows(j.board) ? SUBMIT_GOT_BOARD : true;
+    })
     .catch(() => false);
 }
 
@@ -10685,6 +10694,19 @@ function askName(first){
   const commit = () => {
     const n = cleanName(inp.value);
     if(!n){ msg.textContent = "Put a name in first."; return; }
+    // A name belongs to whoever took it first. The server is where that is
+    // enforced -- it is the only thing that sees every player -- but the
+    // board is already in hand here, so the common case is answered on the
+    // spot instead of letting someone rename themselves, close the panel,
+    // and find out from a line of red text that it did not take.
+    //
+    // Keyed on the id, so changing the capitals of your OWN name is not you
+    // stealing it from yourself.
+    if(remoteRows.some(r => r.n.toLowerCase() === n.toLowerCase() &&
+                            r.id && r.id !== meta.uid)){
+      msg.textContent = "Somebody already has that name — try another.";
+      return;
+    }
     const leaving = meta.name;
     if(leaving && leaving.toLowerCase() !== n.toLowerCase()){
       const was = meta.wasNamed || (meta.wasNamed = []);
@@ -10707,12 +10729,16 @@ function askName(first){
 {
   const panel = $("lbPanel");
   const from = $("lbFrom");
+  let nameTaken = false;
   const sayFrom = () => {
     // An empty shared file is not a shared board yet -- say so rather than
     // announcing "Everyone · 0 players".
-    from.textContent = (remoteAt && remoteRows.length)
+    from.textContent = nameTaken
+      ? "Somebody already has your name — tap Rename and pick another."
+      : (remoteAt && remoteRows.length)
       ? "Everyone · " + remoteRows.length + " player" + (remoteRows.length === 1 ? "" : "s")
       : "This phone only";
+    from.classList.toggle("warn", nameTaken);
   };
   openBoard = () => {
     // Paint from what is already in hand first, so the panel is never blank
@@ -10723,8 +10749,10 @@ function askName(first){
     // of arriving one board behind -- and when the post hands the board
     // back, skip the read entirely rather than risk being served the older
     // copy the store may still be handing out. See submitScore.
-    submitScore().then(r => r === SUBMIT_GOT_BOARD ? true : fetchScores())
-                 .then(ok => { if(ok){ paintBoard(); sayFrom(); } });
+    submitScore().then(r => {
+      nameTaken = (r === SUBMIT_NAME_TAKEN);
+      return r === SUBMIT_GOT_BOARD ? true : fetchScores();
+    }).then(ok => { if(ok || nameTaken){ paintBoard(); sayFrom(); } });
   };
   $("btnBoard").addEventListener("click", openBoard);
   $("btnCp").addEventListener("click", () => { paintCp(); $("cpPanel").hidden = false; });
@@ -10821,7 +10849,7 @@ fetchScores();
    with no version.json beside it. KEEP THE TWO IN STEP -- tools/stamp.py
    writes version.json from the constant below, and the public push is
    what carries both. */
-const BUILD = "2026-10-12a";
+const BUILD = "2026-10-13a";
 (function updateCheck(){
   if(location.protocol === "file:") return;
   // A service worker, where there is one, owns updates: the browser
